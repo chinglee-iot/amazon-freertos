@@ -220,6 +220,7 @@ static CellularPktStatus_t _Cellular_TimeoutAtcmdRequestWithCallbackRaw( Cellula
         IotLogDebug( ">>>>>Start sending [%s]<<<<<", atReq.pAtCmd );
         pContext->pPktUsrData = atReq.pData;
         pContext->PktUsrDataLen = ( uint16_t ) atReq.dataLen;
+        pContext->pCurrentCmd = atReq.pAtCmd;
         pktStatus = _Cellular_PktioSendAtCmd( pContext, atReq.pAtCmd, atReq.atCmdType, atReq.pAtRspPrefix );
 
         if( pktStatus != CELLULAR_PKT_STATUS_OK )
@@ -237,6 +238,7 @@ static CellularPktStatus_t _Cellular_TimeoutAtcmdRequestWithCallbackRaw( Cellula
 
                 if( pktStatus != CELLULAR_PKT_STATUS_OK )
                 {
+
                     IotLogError( "pkt_recv status=%d, error in AT cmd %s resp", pktStatus, atReq.pAtCmd );
                 } /* Ignore errors from callbacks as they will be handled elsewhere. */
             }
@@ -250,6 +252,7 @@ static CellularPktStatus_t _Cellular_TimeoutAtcmdRequestWithCallbackRaw( Cellula
         /* No command is waiting response. */
         pContext->PktioAtCmdType = CELLULAR_AT_NO_COMMAND;
         pContext->pktRespCB = NULL;
+        pContext->pCurrentCmd = NULL;
         IotLogDebug( "<<<<<Exit sending [%s] status[%d]<<<<<", atReq.pAtCmd, pktStatus );
     }
 
@@ -265,6 +268,7 @@ static CellularPktStatus_t _Cellular_DataSendWithTimeoutRaw( CellularContext_t *
     CellularPktStatus_t respCode = CELLULAR_PKT_STATUS_OK;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
     BaseType_t qStatus = pdFALSE;
+    uint32_t sendEndPatternLen = 0;
 
     /* Check the pContext. */
     if( pContext == NULL )
@@ -285,7 +289,18 @@ static CellularPktStatus_t _Cellular_DataSendWithTimeoutRaw( CellularContext_t *
 
         if( *dataReq.pSentDataLength != dataReq.dataLen )
         {
-            IotLogError( "_Cellular_DataSendWithTimeoutRaw, incomplete data transfer " );
+            IotLogError( "_Cellular_DataSendWithTimeoutRaw, incomplete data transfer" );
+            pktStatus = CELLULAR_PKT_STATUS_SEND_ERROR;
+        }
+    }
+
+    /* End pattern for specific modem. */
+    if( ( pktStatus == CELLULAR_PKT_STATUS_OK ) && ( dataReq.pEndPattern != NULL ) )
+    {
+        sendEndPatternLen = _Cellular_PktioSendData( pContext, dataReq.pEndPattern, dataReq.endPatternLen );
+        if( sendEndPatternLen != dataReq.endPatternLen )
+        {
+            IotLogError( "_Cellular_DataSendWithTimeoutRaw, incomplete endpattern transfer" );
             pktStatus = CELLULAR_PKT_STATUS_SEND_ERROR;
         }
     }
@@ -553,14 +568,17 @@ CellularPktStatus_t _Cellular_TimeoutAtcmdRequestWithCallback( CellularContext_t
 CellularPktStatus_t _Cellular_TimeoutAtcmdDataRecvRequestWithCallback( CellularContext_t * pContext,
                                                                        CellularAtReq_t atReq,
                                                                        uint32_t timeoutMS,
-                                                                       CellularATCommandDataPrefixCallback_t pktDataPrefixCallback )
+                                                                       CellularATCommandDataPrefixCallback_t pktDataPrefixCallback,
+                                                                       void * pCallbackContext)
 {
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
 
     _Cellular_PktHandlerAcquirePktRequestMutex( pContext );
     pContext->pktDataPrefixCB = pktDataPrefixCallback;
+    pContext->pDataPrefixCBContext = pCallbackContext;
     pktStatus = _Cellular_TimeoutAtcmdRequestWithCallbackRaw( pContext, atReq, timeoutMS );
     pContext->pktDataPrefixCB = NULL;
+    pContext->pDataPrefixCBContext = NULL;
     _Cellular_PktHandlerReleasePktRequestMutex( pContext );
     return pktStatus;
 }
@@ -577,6 +595,34 @@ CellularPktStatus_t _Cellular_TimeoutAtcmdDataSendRequestWithCallback( CellularC
 
     _Cellular_PktHandlerAcquirePktRequestMutex( pContext );
     pktStatus = _Cellular_TimeoutAtcmdRequestWithCallbackRaw( pContext, atReq, atTimeoutMS );
+
+    if( pktStatus == CELLULAR_PKT_STATUS_OK )
+    {
+        pktStatus = _Cellular_DataSendWithTimeoutRaw( pContext, dataReq, dataTimeoutMS );
+    }
+
+    _Cellular_PktHandlerReleasePktRequestMutex( pContext );
+    return pktStatus;
+}
+
+/*-----------------------------------------------------------*/
+
+CellularPktStatus_t _Cellular_TimeoutAtcmdDataSendSuccessToken( CellularContext_t * pContext,
+                                                                CellularAtReq_t atReq,
+                                                                CellularAtDataReq_t dataReq,
+                                                                uint32_t atTimeoutMS,
+                                                                uint32_t dataTimeoutMS,
+                                                                const char ** pCellularSrcTokenSuccessTable,
+                                                                uint32_t cellularSrcTokenSuccessTableSize )
+{
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+
+    _Cellular_PktHandlerAcquirePktRequestMutex( pContext );
+    pContext->tokenTable.pCellularSrcExtraTokenSuccessTable = pCellularSrcTokenSuccessTable;
+    pContext->tokenTable.cellularSrcExtraTokenSuccessTableSize = cellularSrcTokenSuccessTableSize;
+    pktStatus = _Cellular_TimeoutAtcmdRequestWithCallbackRaw( pContext, atReq, atTimeoutMS );
+    pContext->tokenTable.cellularSrcExtraTokenSuccessTableSize = 0;
+    pContext->tokenTable.pCellularSrcExtraTokenSuccessTable = NULL;
 
     if( pktStatus == CELLULAR_PKT_STATUS_OK )
     {

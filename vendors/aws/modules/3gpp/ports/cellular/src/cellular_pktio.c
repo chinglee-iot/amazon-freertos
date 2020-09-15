@@ -135,14 +135,15 @@ static void _saveData( const char * pLine,
         /* coverity[misra_c_2012_rule_10_5_violation] */
         configASSERT( ( int32_t ) ( pNew->pLine != NULL ) );
         ( void ) memcpy( pNew->pLine, pLine, dataLen );
+        IotLogDebug( "Adding data [%p] to loc [%p]", pNew->pLine, pNew->pLine );
     }
     else
     {
         ( void ) Cellular_ATStrDup( &pNew->pLine, pLine );
+        IotLogDebug( "Adding [%s] to loc [%p]", pNew->pLine, pNew->pLine );
     }
 
     pNew->pNext = NULL;
-    IotLogDebug( "Adding [%s] to loc [%p]", pNew->pLine, pNew->pLine );
 
     if( pResp->pItm == NULL )
     {
@@ -201,7 +202,7 @@ static CellularPktStatus_t _processIntermediateResponse( const char * pLine,
             {
                 /* We already have an intermediate response. */
                 pkStatus = CELLULAR_PKT_STATUS_INVALID_DATA;
-                IotLogError( "AT process ERROR: %s, status: %d ", pLine, pkStatus );
+                IotLogError( "CELLULAR_AT_WO_PREFIX AT process ERROR: %s, status: %d ", pLine, pkStatus );
             }
 
             break;
@@ -220,14 +221,14 @@ static CellularPktStatus_t _processIntermediateResponse( const char * pLine,
                 {
                     /* Prefix mismatch at the beginning of response. */
                     pkStatus = CELLULAR_PKT_STATUS_PREFIX_MISMATCH;
-                    IotLogError( "AT process ERROR: %s respPrefix %s status: %d", pLine, pRespPrefix, pkStatus );
+                    IotLogError( "CELLULAR_AT_WITH_PREFIX AT process ERROR: %s respPrefix %s status: %d", pLine, pRespPrefix, pkStatus );
                 }
             }
             else
             {
                 /* We already have an intermediate response. */
                 pkStatus = CELLULAR_PKT_STATUS_INVALID_DATA;
-                IotLogError( "AT process ERROR: %s, status: %d ", pLine, pkStatus );
+                IotLogError( "CELLULAR_AT_WITH_PREFIX AT process ERROR: %s, status: %d ", pLine, pkStatus );
             }
 
             break;
@@ -244,7 +245,7 @@ static CellularPktStatus_t _processIntermediateResponse( const char * pLine,
                 {
                     /* Prefix mismatch at the beginning of response. */
                     pkStatus = CELLULAR_PKT_STATUS_PREFIX_MISMATCH;
-                    IotLogError( "AT process ERROR: %s respPrefix %s status: %d", pLine, pRespPrefix, pkStatus );
+                    IotLogError( "CELLULAR_AT_MULTI_WITH_PREFIX AT process ERROR: %s respPrefix %s status: %d", pLine, pRespPrefix, pkStatus );
                 }
             }
 
@@ -348,8 +349,11 @@ static CellularPktStatus_t _Cellular_ProcessLine( const CellularContext_t * pCon
     bool result = true;
     const char * const * pTokenSuccessTable = NULL;
     const char * const * pTokenErrorTable = NULL;
+    const char * const * pTokenExtraTable = NULL;
     uint32_t tokenSuccessTableSize = 0;
     uint32_t tokenErrorTableSize = 0;
+    uint32_t tokenExtraTableSize = 0;
+
 
     if( ( pContext != NULL ) &&
         ( pContext->tokenTable.pCellularSrcTokenErrorTable != NULL ) &&
@@ -359,15 +363,26 @@ static CellularPktStatus_t _Cellular_ProcessLine( const CellularContext_t * pCon
         tokenSuccessTableSize = pContext->tokenTable.cellularSrcTokenSuccessTableSize;
         pTokenErrorTable = pContext->tokenTable.pCellularSrcTokenErrorTable;
         tokenErrorTableSize = pContext->tokenTable.cellularSrcTokenErrorTableSize;
+        pTokenExtraTable = pContext->tokenTable.pCellularSrcExtraTokenSuccessTable;
+        tokenExtraTableSize = pContext->tokenTable.cellularSrcExtraTokenSuccessTableSize;
 
         if( pResp == NULL )
         {
             /* Error. It should never happen. */
             IotLogError( "FATAL ERROR: pResp is NULL" );
         }
+        else if( ( pTokenExtraTable != NULL ) &&
+                ( Cellular_ATcheckErrorCode( pLine, pTokenExtraTable,
+                  tokenExtraTableSize, &result ) == CELLULAR_AT_SUCCESS ) &&
+                  ( result == true ) )
+        {
+            pResp->status = true;
+            pkStatus = CELLULAR_PKT_STATUS_OK;
+            IotLogDebug( "Final AT response is SUCCESS [%s] in extra table", pLine );
+        }
         else if( ( Cellular_ATcheckErrorCode( pLine, pTokenSuccessTable,
                                               tokenSuccessTableSize, &result ) == CELLULAR_AT_SUCCESS ) &&
-                 result )
+                  ( result == true ) )
         {
             pResp->status = true;
             pkStatus = CELLULAR_PKT_STATUS_OK;
@@ -375,11 +390,12 @@ static CellularPktStatus_t _Cellular_ProcessLine( const CellularContext_t * pCon
         }
         else if( ( Cellular_ATcheckErrorCode( pLine, pTokenErrorTable,
                                               tokenErrorTableSize, &result ) == CELLULAR_AT_SUCCESS ) &&
-                 result )
+                 ( result == true ) )
         {
             pResp->status = false;
             pkStatus = CELLULAR_PKT_STATUS_OK;
-            IotLogError( "Modem return ERROR: %s respPrefix: %s status: %d", pLine, pRespPrefix, pkStatus );
+            IotLogError( "Modem return ERROR: %s %s respPrefix: %s status: %d",
+                pContext->pCurrentCmd, pLine, pRespPrefix, pkStatus );
         }
         else
         {
@@ -515,7 +531,7 @@ static char * _handleLeftoverBuffer( CellularContext_t * pContext,
     ppAtBufLeftOver = &pContext->pPktioReadPtr;
     pRead = pAtBuf;
 
-    IotLogDebug( "Non empty buffer at the beginning: %s", *ppAtBufLeftOver );
+    IotLogDebug( "Non empty buffer at the beginning: %p", *ppAtBufLeftOver );
 
     if( partialData != 0U )
     {
@@ -549,7 +565,7 @@ static char * _handleLeftoverBuffer( CellularContext_t * pContext,
     if( len != 0U )
     {
         ( void ) memmove( pAtBuf, *ppAtBufLeftOver, len + 1U );
-        IotLogDebug( "moved the partial line/data to starting of pAtBuf=%s", pAtBuf );
+        IotLogDebug( "moved the partial line/data to starting of pAtBuf=%p", pAtBuf );
         pRead = &pAtBuf[ len ];
         *pBytesRead += len;
         IotLogDebug( "Advanced pRead after partial line=%s", pRead );
@@ -703,7 +719,8 @@ static CellularPktStatus_t _handleReceivedMsg( CellularContext_t * pContext,
             if( pContext->pktDataPrefixCB != NULL )
             {
                 /* ppStartOfData and pDataLength are not set if this function failed. */
-                ( void ) pContext->pktDataPrefixCB( pLine, ppStartOfData, pDataLength );
+                ( void ) pContext->pktDataPrefixCB( pContext->pDataPrefixCBContext,
+                    pLine, ppStartOfData, pDataLength );
             }
         }
         else
@@ -713,13 +730,13 @@ static CellularPktStatus_t _handleReceivedMsg( CellularContext_t * pContext,
                 ( void ) memset( pContext->pktioReadBuf, 0, PKTIO_READ_BUFFER_SIZE + 1U );
                 pContext->pPktioReadPtr = NULL;
                 FREE_AT_RESPONSE_AND_SET_NULL( ( *ppAtResp ) );
-                IotLogError( "processLine ERROR, cleaning up!" );
+                IotLogError( "processLine ERROR, cleaning up! Current command %s", pContext->pCurrentCmd );
             }
         }
     }
     else
     {
-        IotLogError( "recvdMsgType is AT_UNDEFINED for Message: %s", pLine );
+        IotLogError( "recvdMsgType is AT_UNDEFINED for Message: %s %s", pLine, pContext->pCurrentCmd );
         ( void ) memset( pContext->pktioReadBuf, 0, PKTIO_READ_BUFFER_SIZE + 1U );
         pContext->pPktioReadPtr = NULL;
         FREE_AT_RESPONSE_AND_SET_NULL( ( *ppAtResp ) );

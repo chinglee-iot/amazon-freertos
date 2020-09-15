@@ -409,6 +409,10 @@ static cellularSmState_t _cellularManagerSmTriggerSwitchSmOn( cellularSmEvent_t 
             newState = CELLULAR_SM_REGISTERED;
             break;
 
+        case CELLULAR_EVENT_DETACHED:
+            newState = CELLULAR_SM_ON;
+            break;
+
         default:
             IotLogWarn( "_cellularManagerSmTriggerSwitchSmOn: Wrong event received: %d", event );
             break;
@@ -791,12 +795,10 @@ CellularManagerError_t CellularManager_ConnectSync( uint8_t contextId,
     if( cellularMgrStatus == CELLULAR_MANAGER_SUCCESS )
     {
         cellularStatus = Cellular_RfOff( _pCellularManagerContext->cellularHandle );
-
         if( cellularStatus == CELLULAR_SUCCESS )
         {
             cellularStatus = Cellular_RfOn( _pCellularManagerContext->cellularHandle );
         }
-
         if( cellularStatus != CELLULAR_SUCCESS )
         {
             cellularMgrStatus = CELLULAR_MANAGER_HAL_ERROR;

@@ -2485,7 +2485,7 @@ CellularError_t Cellular_SocketRecv( CellularHandle_t cellularHandle,
         ( void ) snprintf( cmdBuf, CELLULAR_AT_CMD_TYPICAL_MAX_SIZE,
                            "%s%ld,%ld", "AT+QIRD=", socketHandle->socketId, recvLen );
         pktStatus = _Cellular_TimeoutAtcmdDataRecvRequestWithCallback( pContext,
-                                                                       atReqSocketRecv, recvTimeout, socketRecvDataPrefix );
+                                                                       atReqSocketRecv, recvTimeout, socketRecvDataPrefix, NULL );
 
         if( pktStatus != CELLULAR_PKT_STATUS_OK )
         {
@@ -2528,7 +2528,9 @@ CellularError_t Cellular_SocketSend( CellularHandle_t cellularHandle,
     {
         pData,
         dataLength,
-        pSentDataLength
+        pSentDataLength,
+        NULL,
+        0
     };
 
     /* pContext is checked in _Cellular_CheckLibraryStatus function. */
@@ -2763,8 +2765,7 @@ CellularError_t Cellular_GetPdnStatus( CellularHandle_t cellularHandle,
         {
             /* Check if the PDN state is valid. The context ID of the first
              * invalid PDN status is set to FF. */
-            if( ( pTempPdnStatusBuffer->contextId <= CELLULAR_PDN_CONTEXT_ID_MAX ) &&
-                ( pTempPdnStatusBuffer->contextId != INVALID_PDN_INDEX ) )
+            if( pTempPdnStatusBuffer->contextId <= CELLULAR_PDN_CONTEXT_ID_MAX )
             {
                 ( *pNumStatus ) += 1U;
             }

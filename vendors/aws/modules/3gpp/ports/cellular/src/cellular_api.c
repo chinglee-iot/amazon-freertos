@@ -129,7 +129,9 @@ CellularError_t Cellular_CommonInit( CellularHandle_t * pCellularHandle,
         .pCellularSrcTokenSuccessTable     = CellularSrcTokenSuccessTable,
         .cellularSrcTokenSuccessTableSize  = CellularSrcTokenSuccessTableSize,
         .pCellularUrcTokenWoPrefixTable    = CellularUrcTokenWoPrefixTable,
-        .cellularUrcTokenWoPrefixTableSize = CellularUrcTokenWoPrefixTableSize
+        .cellularUrcTokenWoPrefixTableSize = CellularUrcTokenWoPrefixTableSize,
+        .pCellularSrcExtraTokenSuccessTable      = NULL,
+        .cellularSrcExtraTokenSuccessTableSize   = 0
     };
 
     /* Init the Cellular HAL common. */

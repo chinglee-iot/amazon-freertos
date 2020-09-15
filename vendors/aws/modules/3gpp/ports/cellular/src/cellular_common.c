@@ -406,7 +406,7 @@ static uint8_t _getSignalBars( int16_t compareValue,
         pSignalBarsTable = gsmSignalBarsTable;
         tableSize = ARRY_SIZE( gsmSignalBarsTable );
     }
-    else if( rat == CELLULAR_RAT_CATM1 )
+    else if( ( rat == CELLULAR_RAT_CATM1 ) || ( rat == CELLULAR_RAT_LTE ) )
     {
         pSignalBarsTable = lteCATMSignalBarsTable;
         tableSize = ARRY_SIZE( lteCATMSignalBarsTable );

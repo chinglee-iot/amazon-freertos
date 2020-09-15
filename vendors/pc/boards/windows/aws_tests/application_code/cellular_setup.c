@@ -63,8 +63,6 @@
     #define CELLULAR_SIM_CARD_WAIT_INTERVAL_MS    ( 500UL )
     #define CELLULAR_SIM_CARD_WAIT_TIMEOUT_MS     ( 20000UL )
 
-    #define CELLULAR_MAX_SIM_RETRY                ( 5U )
-
     /**
      * @brief the default Cellular comm interface in system.
      */
@@ -96,15 +94,15 @@
                 cellularStatus = Cellular_GetSimCardStatus( CellularHandle, &simStatus );
 
                 if( ( cellularStatus == CELLULAR_SUCCESS ) &&
-                    ( ( simStatus.simCardState == CELLULAR_SIM_CARD_INSERTED ) &&
+                    ( ( simStatus.simCardState != CELLULAR_SIM_CARD_REMOVED ) &&
                       ( simStatus.simCardLockState == CELLULAR_SIM_CARD_READY ) ) )
                 {
-                    FreeRTOS_printf( ( ">>>  Cellular SIM okay  <<<\r\n" ) );
+                    configPRINTF( ( ">>>  Cellular SIM okay  <<<\r\n" ) );
                     break;
                 }
                 else
                 {
-                    FreeRTOS_printf( ( ">>>  Cellular SIM card state %d, Lock State  <<<\r\n",
+                    configPRINTF( ( ">>>  Cellular SIM card state %d, Lock State %d <<<\r\n",
                                        simStatus.simCardState,
                                        simStatus.simCardLockState ) );
                 }
@@ -114,24 +112,24 @@
         }
 
         /* Setup the PDN config. */
-        if( cellularStatus == CELLULAR_SUCCESS )
+        if( ( cellularStatus == CELLULAR_SUCCESS ) &&
+                    ( ( simStatus.simCardState != CELLULAR_SIM_CARD_REMOVED ) &&
+                      ( simStatus.simCardLockState == CELLULAR_SIM_CARD_READY ) ) )
         {
             cellularStatus = Cellular_SetPdnConfig( CellularHandle, testCELLULAR_PDN_CONTEXT_ID, &pdnConfig );
+            if( cellularStatus == CELLULAR_SUCCESS )
+            {
+                cellularStatus = Cellular_RfOff( CellularHandle );
+            }
+            if( cellularStatus == CELLULAR_SUCCESS )
+            {
+                cellularStatus = Cellular_RfOn( CellularHandle );
+            }
         }
         else
         {
             /* TODO : consider to loop here? */
-            FreeRTOS_printf( ( ">>>  Cellular SIM failure  <<<\r\n" ) );
-        }
-
-        /* Rescan network. */
-        if( cellularStatus == CELLULAR_SUCCESS )
-        {
-            cellularStatus = Cellular_RfOff( CellularHandle );
-        }
-        if( cellularStatus == CELLULAR_SUCCESS )
-        {
-            cellularStatus = Cellular_RfOn( CellularHandle );
+            configPRINTF( ( ">>>  Cellular SIM failure  <<<\r\n" ) );
         }
 
         /* Get service status. */
@@ -145,12 +143,12 @@
                     ( ( serviceStatus.psRegistrationStatus == CELLULAR_NETWORK_REGISTRATION_STATUS_REGISTERED_HOME ) ||
                       ( serviceStatus.psRegistrationStatus == CELLULAR_NETWORK_REGISTRATION_STATUS_REGISTERED_ROAMING ) ) )
                 {
-                    FreeRTOS_printf( ( ">>>  Cellular module registered  <<<\r\n" ) );
+                    configPRINTF( ( ">>>  Cellular module registered  <<<\r\n" ) );
                     break;
                 }
                 else
                 {
-                    FreeRTOS_printf( ( ">>>  Cellular GetServiceStatus failed %d, ps registration status %d  <<<\r\n",
+                    configPRINTF( ( ">>>  Cellular GetServiceStatus failed %d, ps registration status %d  <<<\r\n",
                                        cellularStatus, serviceStatus.psRegistrationStatus ) );
                 }
 
@@ -159,7 +157,7 @@
                 if( timeoutCount >= timeoutCountLimit )
                 {
                     /* TODO : consider to loop here? */
-                    FreeRTOS_printf( ( ">>>  Cellular module can't be registered  <<<\r\n" ) );
+                    configPRINTF( ( ">>>  Cellular module can't be registered  <<<\r\n" ) );
                 }
 
                 vTaskDelay( pdMS_TO_TICKS( CELLULAR_SIM_CARD_WAIT_INTERVAL_MS * 2 ) );
@@ -178,7 +176,7 @@
 
         if( cellularStatus == CELLULAR_SUCCESS )
         {
-            cellularStatus = Cellular_GetPdnStatus( CellularHandle, &PdnStatusBuffers, CellularSocketPdnContextId, &NumStatus );
+            cellularStatus = Cellular_GetPdnStatus( CellularHandle, &PdnStatusBuffers, 1, &NumStatus );
         }
 
         if( cellularStatus == CELLULAR_SUCCESS )
