@@ -220,7 +220,7 @@ static CellularPktStatus_t _Cellular_TimeoutAtcmdRequestWithCallbackRaw( Cellula
         IotLogDebug( ">>>>>Start sending [%s]<<<<<", atReq.pAtCmd );
         pContext->pPktUsrData = atReq.pData;
         pContext->PktUsrDataLen = ( uint16_t ) atReq.dataLen;
-        pContext->pCurrentCmd = atReq.pAtCmd;
+        pContext->pCurrentCmd = ( char * ) atReq.pAtCmd;
         pktStatus = _Cellular_PktioSendAtCmd( pContext, atReq.pAtCmd, atReq.atCmdType, atReq.pAtRspPrefix );
 
         if( pktStatus != CELLULAR_PKT_STATUS_OK )

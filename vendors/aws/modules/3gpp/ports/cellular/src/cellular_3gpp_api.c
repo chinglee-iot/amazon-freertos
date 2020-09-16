@@ -1319,11 +1319,11 @@ static CellularError_t atcmdQueryRegStatus( CellularContext_t * pContext,
 
         if( cellularStatus == CELLULAR_SUCCESS )
         {
-            cellularStatus = queryNetworkStatus( pContext, "AT+CGREG?", "+CGREG", CELLULAR_REG_TYPE_CGREG );
+            cellularStatus = queryNetworkStatus( pContext, "AT+CEREG?", "+CEREG", CELLULAR_REG_TYPE_CEREG );
+
         }
 
-        /* Check if modem acquired GPRS Registration. */
-        /* Query CEREG only if the modem did not already acquire PS registration. */
+        /* Query CGREG only if the modem did not already acquire PS registration. */
         _Cellular_LockAtDataMutex( pContext );
         psRegStatus = pContext->libAtData.psRegStatus;
         _Cellular_UnlockAtDataMutex( pContext );
@@ -1333,7 +1333,7 @@ static CellularError_t atcmdQueryRegStatus( CellularContext_t * pContext,
             ( psRegStatus != CELLULAR_NETWORK_REGISTRATION_STATUS_REGISTERED_HOME ) &&
             ( psRegStatus != CELLULAR_NETWORK_REGISTRATION_STATUS_REGISTERED_ROAMING ) ) )
         {
-            cellularStatus = queryNetworkStatus( pContext, "AT+CEREG?", "+CEREG", CELLULAR_REG_TYPE_CEREG );
+            cellularStatus = queryNetworkStatus( pContext, "AT+CGREG?", "+CGREG", CELLULAR_REG_TYPE_CGREG );
         }
     }
 
