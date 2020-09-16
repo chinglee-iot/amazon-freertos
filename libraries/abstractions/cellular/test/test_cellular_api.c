@@ -1628,7 +1628,8 @@ TEST( Full_CELLULAR_API, AFQP_Cellular_Deactivate )
         xCellularStatus = Cellular_GetPdnStatus( _cellularHandle, &pdnStatusBuffers, testCELLULAR_PDN_CONTEXT_ID, &numStatus );
         TEST_CELLULAR_ASSERT_REQUIRED_API( CELLULAR_SUCCESS == xCellularStatus, xCellularStatus );
 
-        TEST_ASSERT_MESSAGE( numStatus == 0, "Deactive PDN should return 0" );
+        TEST_ASSERT_MESSAGE( ( numStatus == 0 ) ||
+            ( ( numStatus == 1 ) && ( pdnStatusBuffers.state == 0 ) ), "Deactive PDN should return 0" );
     }
     else
     {
@@ -2025,7 +2026,7 @@ TEST( Full_CELLULAR_API, AFQP_Cellular_SetPdnConfig_InvalidMode )
 {
     CellularError_t xCellularStatus = CELLULAR_SUCCESS;
     CellularPdnConfig_t pdnConfig =
-    { CELLULAR_PDN_CONTEXT_IPV4, CELLULAR_PDN_AUTH_NONE, TEST_INVALID_CELLULAR_APN, "", "" };
+    { CELLULAR_PDN_CONTEXT_TYPE_MAX, CELLULAR_PDN_AUTH_NONE, TEST_INVALID_CELLULAR_APN, "", "" };
 
     if( prvIsConnectedCellular() == pdFAIL )
     {

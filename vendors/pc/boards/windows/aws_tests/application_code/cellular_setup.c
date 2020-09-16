@@ -52,6 +52,8 @@
     #include "cellular_comm_interface.h"
     #include "aws_test_cellular.h"
 
+    #define CELLULAR_MAX_SIM_RETRY ( 5UL )
+
     /* Secure socket needs application provide the cellular handle and pdn context id. */
     /* User of secure sockets cellular should provide this variable. */
     /* coverity[misra_c_2012_rule_8_6_violation] */
