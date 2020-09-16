@@ -1608,30 +1608,109 @@ CellularError_t Cellular_SocketConnect( CellularHandle_t cellularHandle,
 
 /*-----------------------------------------------------------*/
 
+/* Cellular HAL types. */
+/* coverity[misra_c_2012_rule_8_13_violation] */
+static CellularPktStatus_t _Cellular_RecvFuncSimDetection( CellularContext_t * pContext,
+                                                           const CellularATCommandResponse_t * pAtResp,
+                                                           void * pData,
+                                                           uint16_t dataLen )
+{
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    char * pInputLine = NULL;
+    bool * pSimCardState = ( bool * ) pData;
+
+    if( pContext == NULL )
+    {
+        IotLogError( "Sim detection: invalid context" );
+        pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+    }
+    else if( ( pAtResp == NULL ) || ( pAtResp->pItm == NULL ) || ( pAtResp->pItm->pLine == NULL ) )
+    {
+        IotLogError( "Sim detection: response is invalid" );
+        pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+    }
+    else if( ( pSimCardState == NULL ) || ( dataLen != sizeof( bool ) ) )
+    {
+        IotLogError( "Sim detection: Bad param" );
+        pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
+    }
+    else
+    {
+        pInputLine = pAtResp->pItm->pLine;
+
+        /* Remove prefix. */
+        atCoreStatus = Cellular_ATRemovePrefix( &pInputLine );
+
+        /* Remove leading space. */
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            atCoreStatus = Cellular_ATRemoveLeadingWhiteSpaces( &pInputLine );
+        }
+
+        if( atCoreStatus == CELLULAR_AT_SUCCESS )
+        {
+            if( *pInputLine == '0' )
+            {
+                *pSimCardState = false;
+            }
+            else if( *pInputLine == '1' )
+            {
+                *pSimCardState = true;
+            }
+            else
+            {
+                atCoreStatus = CELLULAR_AT_ERROR;
+            }
+        }
+        pktStatus = _Cellular_TranslateAtCoreStatus( atCoreStatus );
+    }
+    return pktStatus;
+}
+
+/*-----------------------------------------------------------*/
+
 /* Cellular HAL API. */
 /* coverity[misra_c_2012_rule_8_7_violation] */
 CellularError_t Cellular_GetSimCardStatus( CellularHandle_t cellularHandle,
                                            CellularSimCardStatus_t * pSimCardStatus )
 {
+    CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    bool simCardState = false;
+
+    CellularAtReq_t atReqSimDetection =
+    {
+        "AT+KSIMDET?",
+        CELLULAR_AT_WITH_PREFIX,
+        "+KSIMDET",
+        _Cellular_RecvFuncSimDetection,
+        & simCardState,
+        sizeof( bool ),
+    };
 
     /* Parameters are checked in this API. */
-    if( pSimCardStatus == NULL )
+    cellularStatus = Cellular_CommonGetSimCardLockStatus( cellularHandle, pSimCardStatus );
+
+    if( cellularStatus == CELLULAR_SUCCESS )
     {
-        cellularStatus = CELLULAR_BAD_PARAMETER;
-    }
-    else
-    {
-        cellularStatus = Cellular_CommonGetSimCardLockStatus( cellularHandle, pSimCardStatus );
-        if( ( cellularStatus == CELLULAR_SUCCESS ) &&
-            ( pSimCardStatus->simCardLockState != CELLULAR_SIM_CARD_INVALID ) &&
-            ( pSimCardStatus->simCardLockState != CELLULAR_SIM_CARD_LOCK_UNKNOWN ) )
+        pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqSimDetection );
+        if( pktStatus == CELLULAR_PKT_STATUS_OK )
         {
-            pSimCardStatus->simCardState = CELLULAR_SIM_CARD_INSERTED;
+            if( simCardState == true )
+            {
+                pSimCardStatus->simCardState = CELLULAR_SIM_CARD_INSERTED;
+            }
+            else
+            {
+                pSimCardStatus->simCardState = CELLULAR_SIM_CARD_REMOVED;
+            }
         }
         else
         {
-            pSimCardStatus->simCardState = CELLULAR_SIM_CARD_UNKNOWN;
+            IotLogError( "Cellular_GetSimCardStatus: sim detection failed %d", pktStatus );
+            cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
         }
     }
 
