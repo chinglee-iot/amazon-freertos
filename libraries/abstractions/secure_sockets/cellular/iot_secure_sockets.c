@@ -108,6 +108,10 @@ extern uint8_t CellularSocketPdnContextId;
 
 #define CELLULAR_SOCKET_RECV_TIMEOUT_MS       ( 1000UL )   /* Cellular recv command timeout. */
 
+#if ( CELLULAR_SUPPORT_GETHOSTBYNAME == 0 )
+    #define     GETHOSTBYNAME_CACHE_SIZE      ( 10U )
+#endif /* if ( CELLULAR_SUPPORT_GETHOSTBYNAME == 0 ) */
+
 /*-----------------------------------------------------------*/
 
 typedef struct xSOCKET
@@ -174,6 +178,17 @@ static int32_t prvCheckSetSockOptParams( Socket_t xSocket,
                                          int32_t lOptionName,
                                          const void * pvOptionValue,
                                          TickType_t * pSockTimeout );
+
+#if ( CELLULAR_SUPPORT_GETHOSTBYNAME == 0 )
+    static const char * prvReverseLookup( uint32_t ipAddress );
+    static uint32_t prvLookup( const char * pcHostName );
+#endif /* if ( CELLULAR_SUPPORT_GETHOSTBYNAME == 0 ) */
+
+/*-----------------------------------------------------------*/
+
+#if ( CELLULAR_SUPPORT_GETHOSTBYNAME == 0 )
+    static char _dnsCache[ GETHOSTBYNAME_CACHE_SIZE ][ CELLULAR_IP_ADDRESS_MAX_SIZE + 1 ];
+#endif /* if ( CELLULAR_SUPPORT_GETHOSTBYNAME == 0 ) */
 
 /*-----------------------------------------------------------*/
 
@@ -1007,6 +1022,85 @@ static int32_t prvCheckSetSockOptParams( Socket_t xSocket,
 
 /*-----------------------------------------------------------*/
 
+#if ( ( CELLULAR_SUPPORT_GETHOSTBYNAME == 0 ) )
+
+    static uint32_t prvLookup( const char * pcHostName )
+    {
+        uint32_t resolvedAddress = 0, i = 0, foundInCache = 0;
+        uint32_t hostNameLength = strlen( pcHostName ); /* pcHostName is checked by caller. */
+        uint32_t cacheEntryLength = 0;
+
+        /* Ensure that the provided DNS name is of valid length. */
+        if( hostNameLength <= CELLULAR_IP_ADDRESS_MAX_SIZE )
+        {
+            /* Check if the provided DNS name already exists in cache. */
+            for( i = 0; i < GETHOSTBYNAME_CACHE_SIZE; i++ )
+            {
+                cacheEntryLength = strlen( _dnsCache[ i ] );
+
+                /* The length check is necessary to avoid false substring matches. */
+                if( ( cacheEntryLength == hostNameLength ) &&
+                    ( strncmp( _dnsCache[ i ], pcHostName, hostNameLength ) == 0 ) )
+                {
+                    foundInCache = 1;
+                    break;
+                }
+            }
+
+            if( foundInCache == 1 )
+            {
+                /* We return i + 1 to avoid returing 0 which is used to indicate a
+                 * lookup failure. */
+                resolvedAddress = i + 1;
+            }
+            else
+            {
+                /* Find an empty place in the cache and copy the DNS name. */
+                for( i = 0; i < GETHOSTBYNAME_CACHE_SIZE; i++ )
+                {
+                    if( _dnsCache[ i ][ 0 ] == '\0' )
+                    {
+                        strncpy( _dnsCache[ i ], pcHostName, CELLULAR_IP_ADDRESS_MAX_SIZE );
+
+                        IotLogWarn( "Store %s in cache %d", pcHostName, i );
+
+                        /* Ensure NULL termination. */
+                        _dnsCache[ i ][ hostNameLength ] = '\0';
+
+                        break;
+                    }
+                }
+
+                /* Was an empty place found? */
+                if( i < GETHOSTBYNAME_CACHE_SIZE )
+                {
+                    resolvedAddress = i + 1;
+                }
+            }
+        }
+
+        return resolvedAddress;
+    }
+
+/*-----------------------------------------------------------*/
+
+static const char * prvReverseLookup( uint32_t ipAddress )
+{
+    char * hostName = NULL;
+
+    /* Ensure that the provided IP address is a valid one resolved by us
+     * earlier.*/
+    if( ( ipAddress > 0 ) && ( ipAddress <= GETHOSTBYNAME_CACHE_SIZE ) )
+    {
+        hostName = _dnsCache[ ( ipAddress - 1 ) ];
+    }
+
+    return hostName;
+}
+#endif /* ( ( CELLULAR_SUPPORT_GETHOSTBYNAME == 0 ) ) */
+
+/*-----------------------------------------------------------*/
+
 /* Standard secure socket api implementation. */
 /* coverity[misra_c_2012_rule_8_7_violation] */
 Socket_t SOCKETS_Socket( int32_t lDomain,
@@ -1102,6 +1196,9 @@ int32_t SOCKETS_Connect( Socket_t xSocket,
     int32_t retConnect = SOCKETS_ERROR_NONE;
     uint32_t tlsFlag = 0;
     const uint32_t defaultReceiveTimeoutMs = CELLULAR_SOCKET_RECV_TIMEOUT_MS;
+    #if ( CELLULAR_SUPPORT_GETHOSTBYNAME == 0 )
+        char * pHostname = NULL;
+    #endif /* if ( CELLULAR_SUPPORT_GETHOSTBYNAME == 0 ) */
 
     ( void ) xAddressLength;
 
@@ -1128,11 +1225,29 @@ int32_t SOCKETS_Connect( Socket_t xSocket,
     {
         serverAddress.ipAddress.ipAddressType = CELLULAR_IP_ADDRESS_V4;
 
-        /* This macro is defined in secure sockets header file.
-         * It should be used during address convert in secure sockets implementation. */
-        /* coverity[misra_c_2012_directive_4_6_violation] */
-        /* coverity[misra_c_2012_rule_21_6_violation] */
-        ( void ) SOCKETS_inet_ntoa( pxAddress->ulAddress, serverAddress.ipAddress.ipAddress );
+        #if ( CELLULAR_SUPPORT_GETHOSTBYNAME == 0 )
+            pHostname = prvReverseLookup( pxAddress->ulAddress );
+
+            if( pHostname != NULL )
+            {
+                strncpy( serverAddress.ipAddress.ipAddress, pHostname, CELLULAR_IP_ADDRESS_MAX_SIZE );
+            }
+            else
+            {
+                /* This macro is defined in secure sockets header file.
+                 * It should be used during address convert in secure sockets implementation. */
+                /* coverity[misra_c_2012_directive_4_6_violation] */
+                /* coverity[misra_c_2012_rule_21_6_violation] */
+                ( void ) SOCKETS_inet_ntoa( pxAddress->ulAddress, serverAddress.ipAddress.ipAddress );
+            }
+        #else /* if ( CELLULAR_SUPPORT_GETHOSTBYNAME == 0 ) */
+            /* This macro is defined in secure sockets header file.
+             * It should be used during address convert in secure sockets implementation. */
+            /* coverity[misra_c_2012_directive_4_6_violation] */
+            /* coverity[misra_c_2012_rule_21_6_violation] */
+            ( void ) SOCKETS_inet_ntoa( pxAddress->ulAddress, serverAddress.ipAddress.ipAddress );
+        #endif /* if ( CELLULAR_SUPPORT_GETHOSTBYNAME == 0 ) */
+
         serverAddress.port = pxAddress->usPort;
         IotLogDebug( "Ip address %s port %d\r\n", serverAddress.ipAddress.ipAddress, serverAddress.port );
         retConnect = prvCellularSocketRegisterCallback( tcpSocket, pCellularSocketContext );
@@ -1506,35 +1621,56 @@ int32_t SOCKETS_SetSockOpt( Socket_t xSocket,
 
 /*-----------------------------------------------------------*/
 
+#if ( CELLULAR_SUPPORT_GETHOSTBYNAME == 0 )
+
 /* Standard secure socket api implementation. */
 /* coverity[misra_c_2012_rule_8_7_violation] */
-uint32_t SOCKETS_GetHostByName( const char * pcHostName )
-{
-    uint32_t ulIPAddress = 0;
-    char pIpAddress[ CELLULAR_IP_ADDRESS_MAX_SIZE ] = { 0 };
-    CellularError_t socketStatus = CELLULAR_SUCCESS;
-
-    if( pcHostName != NULL )
+    uint32_t SOCKETS_GetHostByName( const char * pcHostName )
     {
-        socketStatus = Cellular_GetHostByName( CellularHandle,
-                                               CELLULAR_PDN_CONTEXT_ID_SOCKETS, pcHostName, pIpAddress );
+        uint32_t ulIPAddress = 0;
 
-        if( socketStatus == CELLULAR_SUCCESS )
+        if( pcHostName != NULL )
         {
-            /* convert the IP string to uIPAddress. */
-            if( prvSocketsAton( pIpAddress, &ulIPAddress ) == 0 )
+            ulIPAddress = prvLookup( pcHostName );
+        }
+
+        return ulIPAddress;
+    }
+
+/*-----------------------------------------------------------*/
+
+#else /* if ( CELLULAR_SUPPORT_GETHOSTBYNAME == 0 ) */
+
+/* Standard secure socket api implementation. */
+/* coverity[misra_c_2012_rule_8_7_violation] */
+    uint32_t SOCKETS_GetHostByName( const char * pcHostName )
+    {
+        uint32_t ulIPAddress = 0;
+        char pIpAddress[ CELLULAR_IP_ADDRESS_MAX_SIZE ] = { 0 };
+        CellularError_t socketStatus = CELLULAR_SUCCESS;
+
+        if( pcHostName != NULL )
+        {
+            socketStatus = Cellular_GetHostByName( CellularHandle,
+                                                   CELLULAR_PDN_CONTEXT_ID_SOCKETS, pcHostName, pIpAddress );
+
+            if( socketStatus == CELLULAR_SUCCESS )
+            {
+                /* convert the IP string to uIPAddress. */
+                if( prvSocketsAton( pIpAddress, &ulIPAddress ) == 0 )
+                {
+                    ulIPAddress = 0;
+                }
+            }
+            else
             {
                 ulIPAddress = 0;
             }
         }
-        else
-        {
-            ulIPAddress = 0;
-        }
-    }
 
-    return ulIPAddress;
-}
+        return ulIPAddress;
+    }
+#endif /* if ( CELLULAR_SUPPORT_GETHOSTBYNAME == 0 ) */
 
 /*-----------------------------------------------------------*/
 

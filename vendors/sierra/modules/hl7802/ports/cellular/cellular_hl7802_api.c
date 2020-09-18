@@ -1724,7 +1724,7 @@ CellularError_t Cellular_GetSimCardStatus( CellularHandle_t cellularHandle,
 CellularError_t Cellular_RegisterUrcSignalStrengthChangedCallback( CellularHandle_t cellularHandle,
                                                                    CellularUrcSignalStrengthChangedCallback_t signalStrengthChangedCallback )
 {
-    return CELLULAR_SUCCESS;
+    return CELLULAR_UNSUPPORTED;
 }
 
 /*-----------------------------------------------------------*/
@@ -1736,8 +1736,7 @@ CellularError_t Cellular_GetHostByName( CellularHandle_t cellularHandle,
                                         const char * pcHostName,
                                         char * pResolvedAddress )
 {
-    strcpy( pResolvedAddress, "54.149.213.161" );
-    return CELLULAR_SUCCESS;
+    return CELLULAR_UNSUPPORTED;
 }
 
 /*-----------------------------------------------------------*/
@@ -2194,6 +2193,8 @@ static CellularPktStatus_t _Cellular_RecvFuncGetPdnStatus( CellularContext_t * p
 
     return pktStatus;
 }
+
+/*-----------------------------------------------------------*/
 
 /* Cellular HAL API. */
 /* coverity[misra_c_2012_rule_8_7_violation] */
