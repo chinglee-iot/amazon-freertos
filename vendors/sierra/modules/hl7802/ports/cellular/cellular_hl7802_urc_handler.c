@@ -43,13 +43,13 @@
 /*-----------------------------------------------------------*/
 
 static void _cellular_UrcProcessKtcpInd( CellularContext_t * pContext,
-                                               char * pInputLine );
+                                         char * pInputLine );
 static void handleTcpNotif( CellularSocketContext_t * pSocketData,
                             uint8_t tcpNotif );
 static void _cellular_UrcProcessKtcpNotif( CellularContext_t * pContext,
-                                                 char * pInputLine );
+                                           char * pInputLine );
 static void _cellular_UrcProcessKtcpData( CellularContext_t * pContext,
-                                                char * pInputLine );
+                                          char * pInputLine );
 
 /*-----------------------------------------------------------*/
 
@@ -58,11 +58,11 @@ static void _cellular_UrcProcessKtcpData( CellularContext_t * pContext,
 /* coverity[misra_c_2012_rule_8_7_violation] */
 CellularAtParseTokenMap_t CellularUrcHandlerTable[] =
 {
-    { "CEREG",      Cellular_CommonUrcProcessCereg     },
-    { "CREG",       Cellular_CommonUrcProcessCreg      },
-    { "KTCP_DATA",  _cellular_UrcProcessKtcpData },           /* TCP data URC. */
-    { "KTCP_IND",   _cellular_UrcProcessKtcpInd  },           /* TCP status URC. */
-    { "KTCP_NOTIF", _cellular_UrcProcessKtcpNotif}            /* TCP connection failure. */
+    { "CEREG",      Cellular_CommonUrcProcessCereg },
+    { "CREG",       Cellular_CommonUrcProcessCreg  },
+    { "KTCP_DATA",  _cellular_UrcProcessKtcpData   },         /* TCP data URC. */
+    { "KTCP_IND",   _cellular_UrcProcessKtcpInd    },         /* TCP status URC. */
+    { "KTCP_NOTIF", _cellular_UrcProcessKtcpNotif  }          /* TCP connection failure. */
 };
 
 /* Cellular HAL common porting interface. */
@@ -72,7 +72,7 @@ uint32_t CellularUrcHandlerTableSize = sizeof( CellularUrcHandlerTable ) / sizeo
 /*-----------------------------------------------------------*/
 
 static void _cellular_UrcProcessKtcpInd( CellularContext_t * pContext,
-                                               char * pInputLine )
+                                         char * pInputLine )
 {
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
     CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
@@ -129,6 +129,7 @@ static void _cellular_UrcProcessKtcpInd( CellularContext_t * pContext,
             else
             {
                 IotLogDebug( "Notify session %d with socket opened\r\n", sessionId );
+                pSocketData->socketState = SOCKETSTATE_CONNECTED;
                 pSocketData->openCallback( CELLULAR_URC_SOCKET_OPENED,
                                            pSocketData, pSocketData->pOpenCallbackContext );
             }
@@ -145,6 +146,8 @@ static void handleTcpNotif( CellularSocketContext_t * pSocketData,
     {
         case TCP_NOTIF_TCP_DISCONNECTION: /* TCP disconnection by the server or remote client. */
 
+            pSocketData->socketState = SOCKETSTATE_DISCONNECTED;
+
             if( pSocketData->closedCallback != NULL )
             {
                 IotLogDebug( "Notify session %d with socket disconnected\r\n", pSocketData->pModemData );
@@ -154,6 +157,8 @@ static void handleTcpNotif( CellularSocketContext_t * pSocketData,
             break;
 
         case TCP_NOTIF_TCP_CONNECTION_ERROR: /* TCP connection error. */
+
+            pSocketData->socketState = SOCKETSTATE_DISCONNECTED;
 
             if( pSocketData->openCallback != NULL )
             {
@@ -172,7 +177,7 @@ static void handleTcpNotif( CellularSocketContext_t * pSocketData,
 /*-----------------------------------------------------------*/
 
 static void _cellular_UrcProcessKtcpNotif( CellularContext_t * pContext,
-                                                 char * pInputLine )
+                                           char * pInputLine )
 {
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
     CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
@@ -266,7 +271,7 @@ static void _cellular_UrcProcessKtcpNotif( CellularContext_t * pContext,
 /*-----------------------------------------------------------*/
 
 static void _cellular_UrcProcessKtcpData( CellularContext_t * pContext,
-                                                char * pInputLine )
+                                          char * pInputLine )
 {
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
     CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
