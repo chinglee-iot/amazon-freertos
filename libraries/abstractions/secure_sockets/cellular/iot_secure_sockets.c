@@ -1248,7 +1248,7 @@ int32_t SOCKETS_Connect( Socket_t xSocket,
             ( void ) SOCKETS_inet_ntoa( pxAddress->ulAddress, serverAddress.ipAddress.ipAddress );
         #endif /* if ( CELLULAR_SUPPORT_GETHOSTBYNAME == 0 ) */
 
-        serverAddress.port = pxAddress->usPort;
+        serverAddress.port = SOCKETS_htons( pxAddress->usPort );
         IotLogDebug( "Ip address %s port %d\r\n", serverAddress.ipAddress.ipAddress, serverAddress.port );
         retConnect = prvCellularSocketRegisterCallback( tcpSocket, pCellularSocketContext );
     }
