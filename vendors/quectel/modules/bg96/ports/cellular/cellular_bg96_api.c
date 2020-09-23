@@ -193,7 +193,8 @@ static CellularPktStatus_t _Cellular_RecvFuncGetPsmSettings( CellularContext_t *
                                                              const CellularATCommandResponse_t * pAtResp,
                                                              void * pData,
                                                              uint16_t dataLen );
-static CellularPktStatus_t socketRecvDataPrefix( const char * pLine,
+static CellularPktStatus_t socketRecvDataPrefix( void * pCallbackContext,
+                                                 const char * pLine,
                                                  char ** ppDataStart,
                                                  uint32_t * pDataLength );
 static CellularError_t storeAccessModeAndAddress( CellularContext_t * pContext,
@@ -1677,7 +1678,8 @@ static CellularPktStatus_t _Cellular_RecvFuncGetPsmSettings( CellularContext_t *
 
 /*-----------------------------------------------------------*/
 
-static CellularPktStatus_t socketRecvDataPrefix( const char * pLine,
+static CellularPktStatus_t socketRecvDataPrefix( void * pCallbackContext,
+                                                 const char * pLine,
                                                  char ** ppDataStart,
                                                  uint32_t * pDataLength )
 {
