@@ -2575,10 +2575,11 @@ CellularError_t Cellular_SetPsmSettings( CellularHandle_t cellularHandle,
 
     if( cellularStatus == CELLULAR_SUCCESS )
     {
-        /* Standalone sleep mode. Hibernate. Can only be wakeup by wake up signal and t3412 timer. */
+        /* Sleep mode driven by a HW signal (DTR). Sleep level is hibernate.
+         * Can be woken up by WAKE_UP signal or T3412 timer expiration. */
         if( pPsmSettings->mode == 1 )
         {
-            ( void ) snprintf( cmdBuf, CELLULAR_AT_CMD_MAX_SIZE, "AT+KSLEEP=1,2,30" );
+            ( void ) snprintf( cmdBuf, CELLULAR_AT_CMD_MAX_SIZE, "AT+KSLEEP=0,2,30" );
         }
         else
         {
