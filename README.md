@@ -72,8 +72,24 @@ Add extra cmake compile option
 +#define testrunnerFULL_TCP_ENABLED                    0
 
 ```
+4. Setup repeat echo server for EDRX echo times test
+  - tools/echo_server/config.json : 
+```
+{
+    ...
+    "repeat-mode" : true,
+    "repeat-interval-seconds": 30,
+    ...
+}
 
-4. cmake option
+```
+  - tests/include/aws_tests_cellular.h
+```
+/* Repeat echo server send interfal for EDRX echo times test. */
+#define testCELLULAR_EDRX_ECHO_SERVER_DATA_SEND_INTERVAL_MS    ( 30000 )
+```
+
+5. cmake option
 Add extra cmake compile option
   - -DBOARD_HAS_CELLULAR=1
   - -DSECURE_SOCKETS_CELLULAR=1
