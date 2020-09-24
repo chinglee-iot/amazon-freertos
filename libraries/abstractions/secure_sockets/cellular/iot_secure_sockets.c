@@ -59,7 +59,7 @@
     #ifdef IOT_LOG_LEVEL_GLOBAL
         #define LIBRARY_LOG_LEVEL    IOT_LOG_LEVEL_GLOBAL
     #else
-        #define LIBRARY_LOG_LEVEL    IOT_LOG_INFO
+        #define LIBRARY_LOG_LEVEL    IOT_LOG_ERROR
     #endif
 #endif
 #define LIBRARY_LOG_NAME             "SECURE_SOCKETS_CELLULAR"
@@ -1084,19 +1084,19 @@ static int32_t prvCheckSetSockOptParams( Socket_t xSocket,
 
 /*-----------------------------------------------------------*/
 
-static const char * prvReverseLookup( uint32_t ipAddress )
-{
-    char * hostName = NULL;
-
-    /* Ensure that the provided IP address is a valid one resolved by us
-     * earlier.*/
-    if( ( ipAddress > 0 ) && ( ipAddress <= GETHOSTBYNAME_CACHE_SIZE ) )
+    static const char * prvReverseLookup( uint32_t ipAddress )
     {
-        hostName = _dnsCache[ ( ipAddress - 1 ) ];
-    }
+        char * hostName = NULL;
 
-    return hostName;
-}
+        /* Ensure that the provided IP address is a valid one resolved by us
+         * earlier.*/
+        if( ( ipAddress > 0 ) && ( ipAddress <= GETHOSTBYNAME_CACHE_SIZE ) )
+        {
+            hostName = _dnsCache[ ( ipAddress - 1 ) ];
+        }
+
+        return hostName;
+    }
 #endif /* ( ( CELLULAR_SUPPORT_GETHOSTBYNAME == 0 ) ) */
 
 /*-----------------------------------------------------------*/
@@ -1196,8 +1196,9 @@ int32_t SOCKETS_Connect( Socket_t xSocket,
     int32_t retConnect = SOCKETS_ERROR_NONE;
     uint32_t tlsFlag = 0;
     const uint32_t defaultReceiveTimeoutMs = CELLULAR_SOCKET_RECV_TIMEOUT_MS;
+
     #if ( CELLULAR_SUPPORT_GETHOSTBYNAME == 0 )
-        char * pHostname = NULL;
+        const char * pHostname = NULL;
     #endif /* if ( CELLULAR_SUPPORT_GETHOSTBYNAME == 0 ) */
 
     ( void ) xAddressLength;

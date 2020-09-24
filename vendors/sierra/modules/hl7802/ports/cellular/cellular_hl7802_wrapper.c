@@ -273,13 +273,3 @@ CellularError_t Cellular_GetPsmSettings( CellularHandle_t cellularHandle,
 }
 
 /*-----------------------------------------------------------*/
-
-/* Cellular HAL API. */
-/* coverity[misra_c_2012_rule_8_7_violation] */
-CellularError_t Cellular_SetPsmSettings( CellularHandle_t cellularHandle,
-                                         const CellularPsmSettings_t * pPsmSettings )
-{
-    return Cellular_CommonSetPsmSettings( cellularHandle, pPsmSettings );
-}
-
-/*-----------------------------------------------------------*/

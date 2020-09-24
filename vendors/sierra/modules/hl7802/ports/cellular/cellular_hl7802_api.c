@@ -1216,31 +1216,8 @@ CellularError_t Cellular_SetDns( CellularHandle_t cellularHandle,
                                  uint8_t contextId,
                                  const char * pDnsServerAddress )
 {
-    CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
-    CellularError_t cellularStatus = CELLULAR_SUCCESS;
-
-    cellularStatus = _Cellular_CheckLibraryStatus( pContext );
-
-    if( cellularStatus != CELLULAR_SUCCESS )
-    {
-        IotLogDebug( "_Cellular_CheckLibraryStatus failed" );
-    }
-    else if( pDnsServerAddress == NULL )
-    {
-        IotLogError( "Cellular_SetDns: Invalid parameter" );
-        cellularStatus = CELLULAR_BAD_PARAMETER;
-    }
-    else
-    {
-        cellularStatus = _Cellular_IsValidPdn( contextId );
-    }
-
-    if( cellularStatus == CELLULAR_SUCCESS )
-    {
-        /* TODO : implementation. */
-    }
-
-    return cellularStatus;
+    /* Modem use dynamic DNS addresses. Return unsupported. */
+    return CELLULAR_UNSUPPORTED;
 }
 
 /*-----------------------------------------------------------*/
@@ -1450,7 +1427,7 @@ CellularError_t Cellular_SocketSend( CellularHandle_t cellularHandle,
         {
             if( socketHandle->socketState == SOCKETSTATE_DISCONNECTED )
             {
-                IotLogError( "Cellular_SocketSend: Data send fail, socket already closed" );
+                IotLogInfo( "Cellular_SocketSend: Data send fail, socket already closed" );
                 cellularStatus = CELLULAR_SOCKET_CLOSED;
             }
             else
@@ -1653,6 +1630,7 @@ CellularError_t Cellular_GetSimCardStatus( CellularHandle_t cellularHandle,
     if( cellularStatus == CELLULAR_SUCCESS )
     {
         cellularStatus = Cellular_CommonGetSimCardLockStatus( cellularHandle, pSimCardStatus );
+
         if( ( cellularStatus == CELLULAR_SUCCESS ) &&
             ( pSimCardStatus->simCardLockState != CELLULAR_SIM_CARD_INVALID ) &&
             ( pSimCardStatus->simCardLockState != CELLULAR_SIM_CARD_LOCK_UNKNOWN ) )
@@ -1797,6 +1775,8 @@ static CellularPktStatus_t _Cellular_RecvFuncPacketSwitchStatus( CellularContext
     return pktStatus;
 }
 
+/*-----------------------------------------------------------*/
+
 static CellularError_t _Cellular_GetPacketSwitchStatus( CellularHandle_t cellularHandle,
                                                         bool * pPacketSwitchStatus )
 {
@@ -1819,6 +1799,8 @@ static CellularError_t _Cellular_GetPacketSwitchStatus( CellularHandle_t cellula
 
     return cellularStatus;
 }
+
+/*-----------------------------------------------------------*/
 
 /* Cellular HAL API. */
 /* coverity[misra_c_2012_rule_8_7_violation] */
@@ -2556,6 +2538,55 @@ CellularError_t Cellular_SetPdnConfig( CellularHandle_t cellularHandle,
 
         pktStatus = _Cellular_AtcmdRequestWithCallback( pContext,
                                                         atGprsConnectionConfighReq );
+
+        if( pktStatus != CELLULAR_PKT_STATUS_OK )
+        {
+            IotLogError( "Cellular_PacketSwitchAttach: failed, PktRet: %d", pktStatus );
+            cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+        }
+    }
+
+    return cellularStatus;
+}
+
+/*-----------------------------------------------------------*/
+
+/* Cellular HAL API. */
+/* coverity[misra_c_2012_rule_8_7_violation] */
+CellularError_t Cellular_SetPsmSettings( CellularHandle_t cellularHandle,
+                                         const CellularPsmSettings_t * pPsmSettings )
+{
+    CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    char cmdBuf[ CELLULAR_AT_CMD_MAX_SIZE ] = { '\0' };
+    CellularAtReq_t atKsleepReq =
+    {
+        cmdBuf,
+        CELLULAR_AT_NO_RESULT,
+        NULL,
+        NULL,
+        NULL,
+        0,
+    };
+
+    /* Parameters are checked in this function. */
+    cellularStatus = Cellular_CommonSetPsmSettings( cellularHandle, pPsmSettings );
+
+    if( cellularStatus == CELLULAR_SUCCESS )
+    {
+        /* Standalone sleep mode. Hibernate. Can only be wakeup by wake up signal and t3412 timer. */
+        if( pPsmSettings->mode == 1 )
+        {
+            ( void ) snprintf( cmdBuf, CELLULAR_AT_CMD_MAX_SIZE, "AT+KSLEEP=1,2,30" );
+        }
+        else
+        {
+            ( void ) snprintf( cmdBuf, CELLULAR_AT_CMD_MAX_SIZE, "AT+KSLEEP=2" );
+        }
+
+        pktStatus = _Cellular_AtcmdRequestWithCallback( pContext,
+                                                        atKsleepReq );
 
         if( pktStatus != CELLULAR_PKT_STATUS_OK )
         {

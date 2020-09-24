@@ -36,8 +36,8 @@
 #include "platform/iot_threads.h"
 
 /* cellular include. */
-#include "cellular_config_defaults.h"
 #include "aws_cellular_config.h"
+#include "cellular_config_defaults.h"
 #include "cellular_manager.h"
 #include "cellular_api.h"
 
@@ -381,7 +381,7 @@ static cellularSmState_t _cellularManagerSmTriggerSwitchSmOff( cellularSmEvent_t
             break;
 
         default:
-            IotLogWarn( "_cellularManagerSmTriggerSwitchSmOff: Wrong event received: %s", event );
+            IotLogWarn( "_cellularManagerSmTriggerSwitchSmOff: Wrong event received: %d", event );
             break;
     }
 
@@ -795,10 +795,12 @@ CellularManagerError_t CellularManager_ConnectSync( uint8_t contextId,
     if( cellularMgrStatus == CELLULAR_MANAGER_SUCCESS )
     {
         cellularStatus = Cellular_RfOff( _pCellularManagerContext->cellularHandle );
+
         if( cellularStatus == CELLULAR_SUCCESS )
         {
             cellularStatus = Cellular_RfOn( _pCellularManagerContext->cellularHandle );
         }
+
         if( cellularStatus != CELLULAR_SUCCESS )
         {
             cellularMgrStatus = CELLULAR_MANAGER_HAL_ERROR;

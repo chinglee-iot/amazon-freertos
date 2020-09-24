@@ -60,12 +60,12 @@
 
 #define PDN_ACT_PACKET_REQ_TIMEOUT_MS       ( 150000UL )
 
-#define INVALID_PDN_INDEX                        ( 0xFFU )
+#define INVALID_PDN_INDEX                   ( 0xFFU )
 
 /* Length of HPLMN including RAT. */
-#define CRSM_HPLMN_RAT_LENGTH                      ( 9U )
+#define CRSM_HPLMN_RAT_LENGTH               ( 9U )
 
-#define PRINTF_BINARY_PATTERN_INT4    "%c%c%c%c"
+#define PRINTF_BINARY_PATTERN_INT4          "%c%c%c%c"
 #define PRINTF_BYTE_TO_BINARY_INT4( i )            \
     ( ( ( ( i ) & 0x08UL ) != 0UL ) ? '1' : '0' ), \
     ( ( ( ( i ) & 0x04UL ) != 0UL ) ? '1' : '0' ), \
@@ -77,11 +77,32 @@
 #define PRINTF_BYTE_TO_BINARY_INT8( i ) \
     PRINTF_BYTE_TO_BINARY_INT4( ( i ) >> 4 ), PRINTF_BYTE_TO_BINARY_INT4( i )
 
-#define CPSMS_POS_MODE                           ( 0U )
-#define CPSMS_POS_RAU                            ( 1U )
-#define CPSMS_POS_RDY_TIMER                      ( 2U )
-#define CPSMS_POS_TAU                            ( 3U )
-#define CPSMS_POS_ACTIVE_TIME                    ( 4U )
+#define CPSMS_POS_MODE           ( 0U )
+#define CPSMS_POS_RAU            ( 1U )
+#define CPSMS_POS_RDY_TIMER      ( 2U )
+#define CPSMS_POS_TAU            ( 3U )
+#define CPSMS_POS_ACTIVE_TIME    ( 4U )
+
+#define T3324_TIMER_UNIT( x )     ( ( uint32_t ) ( ( x & 0x000000E0 ) >> 5 ) ) /* Bits 6, 7, 8. */
+#define T3324_TIMER_VALUE( x )    ( ( uint32_t ) ( x & 0x0000001F ) )
+#define T3324_TIMER_DEACTIVATED         ( 0xFFFFFFFFU )
+
+#define T3324_TIMER_UNIT_2SECONDS       ( 0U )
+#define T3324_TIMER_UNIT_1MINUTE        ( 1U )
+#define T3324_TIMER_UNIT_DECIHOURS      ( 2U )
+#define T3324_TIMER_UNIT_DEACTIVATED    ( 7U )
+
+#define T3412_TIMER_UNIT( x )     ( ( uint32_t ) ( ( x & 0x000000E0 ) >> 5 ) ) /* Bits 6, 7, 8. */
+#define T3412_TIMER_VALUE( x )    ( ( uint32_t ) ( x & 0x0000001F ) )
+#define T3412_TIMER_DEACTIVATED         ( 0xFFFFFFFFU )
+
+#define T3412_TIMER_UNIT_10MINUTES      ( 0U )
+#define T3412_TIMER_UNIT_1HOURS         ( 1U )
+#define T3412_TIMER_UNIT_10HOURS        ( 2U )
+#define T3412_TIMER_UNIT_2SECONDS       ( 3U )
+#define T3412_TIMER_UNIT_30SECONDS      ( 4U )
+#define T3412_TIMER_UNIT_1MINUTES       ( 5U )
+#define T3412_TIMER_UNIT_DEACTIVATED    ( 7U )
 
 /*-----------------------------------------------------------*/
 
@@ -173,6 +194,10 @@ static CellularError_t atcmdUpdateMccMnc( CellularContext_t * pContext,
                                           cellularOperatorInfo_t * pOperatorInfo );
 static CellularError_t atcmdQueryRegStatus( CellularContext_t * pContext,
                                             CellularServiceStatus_t * pServiceStatus );
+static CellularATError_t parseT3412TimerValue( char * pToken,
+                                               uint32_t * pTimerValueSeconds );
+static CellularATError_t parseT3314TimerValue( char * pToken,
+                                               uint32_t * pTimerValueSeconds );
 
 /*-----------------------------------------------------------*/
 
@@ -1320,7 +1345,6 @@ static CellularError_t atcmdQueryRegStatus( CellularContext_t * pContext,
         if( cellularStatus == CELLULAR_SUCCESS )
         {
             cellularStatus = queryNetworkStatus( pContext, "AT+CEREG?", "+CEREG", CELLULAR_REG_TYPE_CEREG );
-
         }
 
         /* Query CGREG only if the modem did not already acquire PS registration. */
@@ -1328,10 +1352,10 @@ static CellularError_t atcmdQueryRegStatus( CellularContext_t * pContext,
         psRegStatus = pContext->libAtData.psRegStatus;
         _Cellular_UnlockAtDataMutex( pContext );
 
-        if( ( ( cellularStatus != CELLULAR_SUCCESS ) ) || 
+        if( ( ( cellularStatus != CELLULAR_SUCCESS ) ) ||
             ( ( cellularStatus == CELLULAR_SUCCESS ) &&
-            ( psRegStatus != CELLULAR_NETWORK_REGISTRATION_STATUS_REGISTERED_HOME ) &&
-            ( psRegStatus != CELLULAR_NETWORK_REGISTRATION_STATUS_REGISTERED_ROAMING ) ) )
+              ( psRegStatus != CELLULAR_NETWORK_REGISTRATION_STATUS_REGISTERED_HOME ) &&
+              ( psRegStatus != CELLULAR_NETWORK_REGISTRATION_STATUS_REGISTERED_ROAMING ) ) )
         {
             cellularStatus = queryNetworkStatus( pContext, "AT+CGREG?", "+CGREG", CELLULAR_REG_TYPE_CGREG );
         }
@@ -1353,6 +1377,124 @@ static CellularError_t atcmdQueryRegStatus( CellularContext_t * pContext,
     }
 
     return cellularStatus;
+}
+
+/*-----------------------------------------------------------*/
+
+static CellularATError_t parseT3412TimerValue( char * pToken,
+                                               uint32_t * pTimerValueSeconds )
+{
+    int32_t tempValue = 0;
+    uint32_t timerUnitIndex = 0;
+    uint32_t timerValue = 0;
+    CellularATError_t atCoreStatus = Cellular_ATStrtoi( pToken, 2, &tempValue );
+
+    if( atCoreStatus == CELLULAR_AT_SUCCESS )
+    {
+        if( tempValue < 0 )
+        {
+            IotLogError( "Error in processing Periodic Processing Active time value. Token %s", pToken );
+            atCoreStatus = CELLULAR_AT_ERROR;
+        }
+    }
+
+    if( atCoreStatus == CELLULAR_AT_SUCCESS )
+    {
+        timerUnitIndex = T3412_TIMER_UNIT( tempValue );
+        timerValue = T3412_TIMER_VALUE( tempValue );
+
+        /* Parse the time unit. */
+        switch( timerUnitIndex )
+        {
+            case T3412_TIMER_UNIT_10MINUTES:
+                *pTimerValueSeconds = timerValue * ( 10U * 60U );
+                break;
+
+            case T3412_TIMER_UNIT_1HOURS:
+                *pTimerValueSeconds = timerValue * ( 1U * 60U * 60U );
+                break;
+
+            case T3412_TIMER_UNIT_10HOURS:
+                *pTimerValueSeconds = timerValue * ( 10U * 60U * 60U );
+                break;
+
+            case T3412_TIMER_UNIT_2SECONDS:
+                *pTimerValueSeconds = timerValue * 2U;
+                break;
+
+            case T3412_TIMER_UNIT_30SECONDS:
+                *pTimerValueSeconds = timerValue * 30U;
+                break;
+
+            case T3412_TIMER_UNIT_1MINUTES:
+                *pTimerValueSeconds = timerValue * 60U;
+                break;
+
+            case T3412_TIMER_UNIT_DEACTIVATED:
+                *pTimerValueSeconds = T3412_TIMER_DEACTIVATED;
+                break;
+
+            default:
+                IotLogError( "Invalid T3412 timer unit index" );
+                atCoreStatus = CELLULAR_AT_ERROR;
+                break;
+        }
+    }
+
+    return atCoreStatus;
+}
+
+/*-----------------------------------------------------------*/
+
+static CellularATError_t parseT3324TimerValue( char * pToken,
+                                               uint32_t * pTimerValueSeconds )
+{
+    int32_t tempValue = 0;
+    uint32_t timerUnitIndex = 0;
+    uint32_t timerValue = 0;
+    CellularATError_t atCoreStatus = Cellular_ATStrtoi( pToken, 2, &tempValue );
+
+    if( atCoreStatus == CELLULAR_AT_SUCCESS )
+    {
+        if( tempValue < 0 )
+        {
+            IotLogError( "Error in processing Periodic Processing Active time value. Token %s", pToken );
+            atCoreStatus = CELLULAR_AT_ERROR;
+        }
+    }
+
+    if( atCoreStatus == CELLULAR_AT_SUCCESS )
+    {
+        timerUnitIndex = T3324_TIMER_UNIT( tempValue );
+        timerValue = T3324_TIMER_VALUE( tempValue );
+
+        /* Parse the time unit. */
+        switch( timerUnitIndex )
+        {
+            case T3324_TIMER_UNIT_2SECONDS:
+                *pTimerValueSeconds = timerValue * 2u;
+                break;
+
+            case T3324_TIMER_UNIT_1MINUTE:
+                *pTimerValueSeconds = timerValue * 60U;
+                break;
+
+            case T3324_TIMER_UNIT_DECIHOURS:
+                *pTimerValueSeconds = timerValue * ( 15U * 60U );
+                break;
+
+            case T3324_TIMER_UNIT_DEACTIVATED:
+                *pTimerValueSeconds = T3324_TIMER_DEACTIVATED;
+                break;
+
+            default:
+                IotLogError( "Invalid T3324 timer unit index" );
+                atCoreStatus = CELLULAR_AT_ERROR;
+                break;
+        }
+    }
+
+    return atCoreStatus;
 }
 
 /*-----------------------------------------------------------*/
@@ -1877,14 +2019,14 @@ void _Cellular_InitAtData( CellularContext_t * pContext,
 /* Cellular HAL API. */
 /* coverity[misra_c_2012_rule_8_7_violation] */
 CellularError_t Cellular_CommonSetPdnConfig( CellularHandle_t cellularHandle,
-                                       uint8_t contextId,
-                                       const CellularPdnConfig_t * pPdnConfig )
+                                             uint8_t contextId,
+                                             const CellularPdnConfig_t * pPdnConfig )
 {
     CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
     char cmdBuf[ CELLULAR_AT_CMD_MAX_SIZE ] = { '\0' };
-    char *pPdpTypeStr = NULL;
+    char * pPdpTypeStr = NULL;
     CellularAtReq_t atReqSetPdn =
     {
         cmdBuf,
@@ -1907,12 +2049,15 @@ CellularError_t Cellular_CommonSetPdnConfig( CellularHandle_t cellularHandle,
             case CELLULAR_PDN_CONTEXT_IPV4:
                 pPdpTypeStr = "IP";
                 break;
+
             case CELLULAR_PDN_CONTEXT_IPV6:
                 pPdpTypeStr = "IPV6";
                 break;
+
             case CELLULAR_PDN_CONTEXT_IPV4V6:
                 pPdpTypeStr = "IPV4V6";
                 break;
+
             default:
                 cellularStatus = CELLULAR_BAD_PARAMETER;
                 break;
@@ -2438,7 +2583,7 @@ static CellularPktStatus_t _Cellular_RecvFuncGetImsi( CellularContext_t * pConte
 /* Cellular HAL API. */
 /* coverity[misra_c_2012_rule_8_7_violation] */
 CellularError_t Cellular_CommonGetSimCardInfo( CellularHandle_t cellularHandle,
-                                         CellularSimCardInfo_t * pSimCardInfo )
+                                               CellularSimCardInfo_t * pSimCardInfo )
 {
     CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
@@ -2551,7 +2696,7 @@ static uint32_t appendBinaryPattern( char * cmdBuf,
 /* Cellular HAL API. */
 /* coverity[misra_c_2012_rule_8_7_violation] */
 CellularError_t Cellular_CommonSetPsmSettings( CellularHandle_t cellularHandle,
-                                         const CellularPsmSettings_t * pPsmSettings )
+                                               const CellularPsmSettings_t * pPsmSettings )
 {
     CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
@@ -2644,102 +2789,6 @@ static CellularATError_t parseCpsmsMode( char * pToken,
 
 /*-----------------------------------------------------------*/
 
-static CellularATError_t parseCpsmsRau( char * pToken,
-                                        CellularPsmSettings_t * pPsmSettings )
-{
-    int32_t tempValue = 0;
-    CellularATError_t atCoreStatus = Cellular_ATStrtoi( pToken, 2, &tempValue );
-
-    if( atCoreStatus == CELLULAR_AT_SUCCESS )
-    {
-        if( tempValue >= 0 )
-        {
-            pPsmSettings->periodicRauValue = ( uint32_t ) tempValue;
-        }
-        else
-        {
-            IotLogError( "Error in processing Periodic Processing RAU value. Token %s", pToken );
-            atCoreStatus = CELLULAR_AT_ERROR;
-        }
-    }
-
-    return atCoreStatus;
-}
-
-/*-----------------------------------------------------------*/
-
-static CellularATError_t parseCpsmsRdyTimer( char * pToken,
-                                             CellularPsmSettings_t * pPsmSettings )
-{
-    int32_t tempValue = 0;
-    CellularATError_t atCoreStatus = Cellular_ATStrtoi( pToken, 2, &tempValue );
-
-    if( atCoreStatus == CELLULAR_AT_SUCCESS )
-    {
-        if( tempValue >= 0 )
-        {
-            pPsmSettings->gprsReadyTimer = ( uint32_t ) tempValue;
-        }
-        else
-        {
-            IotLogError( "Error in processing Periodic Processing GPRS Ready Timer value. Token %s", pToken );
-            atCoreStatus = CELLULAR_AT_ERROR;
-        }
-    }
-
-    return atCoreStatus;
-}
-
-/*-----------------------------------------------------------*/
-
-static CellularATError_t parseCpsmsTau( char * pToken,
-                                        CellularPsmSettings_t * pPsmSettings )
-{
-    int32_t tempValue = 0;
-    CellularATError_t atCoreStatus = Cellular_ATStrtoi( pToken, 2, &tempValue );
-
-    if( atCoreStatus == CELLULAR_AT_SUCCESS )
-    {
-        if( tempValue >= 0 )
-        {
-            pPsmSettings->periodicTauValue = ( uint32_t ) tempValue;
-        }
-        else
-        {
-            IotLogError( "Error in processing Periodic TAU value value. Token %s", pToken );
-            atCoreStatus = CELLULAR_AT_ERROR;
-        }
-    }
-
-    return atCoreStatus;
-}
-
-/*-----------------------------------------------------------*/
-
-static CellularATError_t parseCpsmsActiveTime( char * pToken,
-                                               CellularPsmSettings_t * pPsmSettings )
-{
-    int32_t tempValue = 0;
-    CellularATError_t atCoreStatus = Cellular_ATStrtoi( pToken, 10, &tempValue );
-
-    if( atCoreStatus == CELLULAR_AT_SUCCESS )
-    {
-        if( tempValue >= 0 )
-        {
-            pPsmSettings->activeTimeValue = ( uint32_t ) tempValue;
-        }
-        else
-        {
-            IotLogError( "Error in processing Periodic Processing Active time value. Token %s", pToken );
-            atCoreStatus = CELLULAR_AT_ERROR;
-        }
-    }
-
-    return atCoreStatus;
-}
-
-/*-----------------------------------------------------------*/
-
 static CellularATError_t parseGetPsmToken( char * pToken,
                                            uint8_t tokenIndex,
                                            CellularPsmSettings_t * pPsmSettings )
@@ -2753,19 +2802,19 @@ static CellularATError_t parseGetPsmToken( char * pToken,
             break;
 
         case CPSMS_POS_RAU:
-            atCoreStatus = parseCpsmsRau( pToken, pPsmSettings );
+            atCoreStatus = parseT3412TimerValue( pToken, &pPsmSettings->periodicRauValue );
             break;
 
         case CPSMS_POS_RDY_TIMER:
-            atCoreStatus = parseCpsmsRdyTimer( pToken, pPsmSettings );
+            atCoreStatus = parseT3324TimerValue( pToken, &pPsmSettings->gprsReadyTimer );
             break;
 
         case CPSMS_POS_TAU:
-            atCoreStatus = parseCpsmsTau( pToken, pPsmSettings );
+            atCoreStatus = parseT3412TimerValue( pToken, &pPsmSettings->periodicTauValue );
             break;
 
         case CPSMS_POS_ACTIVE_TIME:
-            atCoreStatus = parseCpsmsActiveTime( pToken, pPsmSettings );
+            atCoreStatus = parseT3324TimerValue( pToken, &pPsmSettings->activeTimeValue );
             break;
 
         default:
@@ -2858,7 +2907,7 @@ static CellularPktStatus_t _Cellular_RecvFuncGetPsmSettings( CellularContext_t *
 /* Cellular HAL API. */
 /* coverity[misra_c_2012_rule_8_7_violation] */
 CellularError_t Cellular_CommonGetPsmSettings( CellularHandle_t cellularHandle,
-                                         CellularPsmSettings_t * pPsmSettings )
+                                               CellularPsmSettings_t * pPsmSettings )
 {
     CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
     CellularError_t cellularStatus = CELLULAR_SUCCESS;

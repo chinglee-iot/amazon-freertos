@@ -124,10 +124,12 @@ CellularError_t Cellular_ModuleInit( const CellularContext_t * pContext,
     {
         /* Initialize the module context. */
         ( void ) memset( &cellularHl7802Context, 0, sizeof( cellularModuleContext_t ) );
-        for( i = 0; i < TCP_SESSION_TABLE_LEGNTH ; i++ )
+
+        for( i = 0; i < TCP_SESSION_TABLE_LEGNTH; i++ )
         {
             cellularHl7802Context.pSessionMap[ i ] = INVALID_SOCKET_INDEX;
         }
+
         *ppModuleContext = ( void * ) &cellularHl7802Context;
     }
 
@@ -201,6 +203,13 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
             atReqGetNoResult.pAtCmd = "AT+CFUN=1";
             cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
         }
+
+        /* Disable standalone sleep mode. */
+        if( cellularStatus == CELLULAR_SUCCESS )
+        {
+            atReqGetNoResult.pAtCmd = "AT+KSLEEP=2";
+            cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
+        }
     }
 
     return cellularStatus;
@@ -240,7 +249,8 @@ CellularError_t Cellular_ModuleEnableUrc( CellularContext_t * pContext )
 
 /*-----------------------------------------------------------*/
 
-uint32_t _Cellular_GetSocketId( CellularContext_t * pContext, uint8_t sessionId )
+uint32_t _Cellular_GetSocketId( CellularContext_t * pContext,
+                                uint8_t sessionId )
 {
     cellularModuleContext_t * pModuleContext = NULL;
     uint32_t socketIndex = INVALID_SOCKET_INDEX;
@@ -255,8 +265,8 @@ uint32_t _Cellular_GetSocketId( CellularContext_t * pContext, uint8_t sessionId 
         cellularStatus = CELLULAR_BAD_PARAMETER;
     }
 
-    if( ( cellularStatus == CELLULAR_SUCCESS )
-        && ( sessionId >= MIN_TCP_SESSION_ID ) && ( sessionId <= MAX_TCP_SESSION_ID ) )
+    if( ( cellularStatus == CELLULAR_SUCCESS ) &&
+        ( sessionId >= MIN_TCP_SESSION_ID ) && ( sessionId <= MAX_TCP_SESSION_ID ) )
     {
         socketIndex = pModuleContext->pSessionMap[ sessionId ];
     }
