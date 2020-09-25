@@ -18,10 +18,16 @@ The branch is a development branch of HL7802 porting.
 ```
 
 3. Setup board demo config
-  - vendors/pc/boards/windows/aws_demos/config_files/FreeRTOSConfig.h : Setup configNETWORK_INTERFACE_TO_USE
-
-  - vendors/pc/boards/windows/aws_demos/config_files/aws_cellular_config.h : setup cellularconfigCOMM_INTERFACE_PORT
-
+  - vendors/pc/boards/windows/aws_demos/config_files/FreeRTOSConfig.h :
+```
+Setup configNETWORK_INTERFACE_TO_USE
+```
+  - vendors/pc/boards/windows/aws_demos/config_files/aws_cellular_config.h :
+```
+setup cellularconfigCOMM_INTERFACE_PORT
++#define CELLULAR_SUPPORT_GETHOSTBYNAME      ( 0 )
++#define CELLULAR_IP_ADDRESS_MAX_SIZE        ( 64U )  /* IP Address is used to store the domain name. */
+```
   - vendors/pc/boards/windows/aws_demos/config_files/aws_demo_config.h :
 ```
 -#define democonfigNETWORK_TYPES                        ( AWSIOT_NETWORK_TYPE_ETH )
