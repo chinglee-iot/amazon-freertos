@@ -18,10 +18,16 @@ The branch is a development branch of HL7802 porting.
 ```
 
 3. Setup board demo config
-  - vendors/pc/boards/windows/aws_demos/config_files/FreeRTOSConfig.h : Setup configNETWORK_INTERFACE_TO_USE
-
-  - vendors/pc/boards/windows/aws_demos/config_files/aws_cellular_config.h : setup cellularconfigCOMM_INTERFACE_PORT
-
+  - vendors/pc/boards/windows/aws_demos/config_files/FreeRTOSConfig.h :
+```
+Setup configNETWORK_INTERFACE_TO_USE
+```
+  - vendors/pc/boards/windows/aws_demos/config_files/aws_cellular_config.h :
+```
+setup cellularconfigCOMM_INTERFACE_PORT
++#define CELLULAR_SUPPORT_GETHOSTBYNAME      ( 0 )
++#define CELLULAR_IP_ADDRESS_MAX_SIZE        ( 64U )  /* IP Address is used to store the domain name. */
+```
   - vendors/pc/boards/windows/aws_demos/config_files/aws_demo_config.h :
 ```
 -#define democonfigNETWORK_TYPES                        ( AWSIOT_NETWORK_TYPE_ETH )
@@ -72,8 +78,24 @@ Add extra cmake compile option
 +#define testrunnerFULL_TCP_ENABLED                    0
 
 ```
+4. Setup repeat echo server for EDRX echo times test
+  - tools/echo_server/config.json : 
+```
+{
+    ...
+    "repeat-mode" : true,
+    "repeat-interval-seconds": 30,
+    ...
+}
 
-4. cmake option
+```
+  - tests/include/aws_tests_cellular.h
+```
+/* Repeat echo server send interfal for EDRX echo times test. */
+#define testCELLULAR_EDRX_ECHO_SERVER_DATA_SEND_INTERVAL_MS    ( 30000 )
+```
+
+5. cmake option
 Add extra cmake compile option
   - -DBOARD_HAS_CELLULAR=1
   - -DSECURE_SOCKETS_CELLULAR=1
