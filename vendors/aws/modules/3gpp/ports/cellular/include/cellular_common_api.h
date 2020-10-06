@@ -208,29 +208,29 @@ CellularError_t Cellular_CommonGetServiceStatus( CellularHandle_t cellularHandle
  * Reference Cellular_GetServiceStatus in cellular_api.h for definition.
  */
 CellularError_t Cellular_CommonSetPdnConfig( CellularHandle_t cellularHandle,
-                                       uint8_t contextId,
-                                       const CellularPdnConfig_t * pPdnConfig );
+                                             uint8_t contextId,
+                                             const CellularPdnConfig_t * pPdnConfig );
 
 /**
  * @brief This function is the implementationof cellular HAL API.
  * Reference Cellular_GetServiceStatus in cellular_api.h for definition.
  */
 CellularError_t Cellular_CommonGetPsmSettings( CellularHandle_t cellularHandle,
-                                         CellularPsmSettings_t * pPsmSettings );
+                                               CellularPsmSettings_t * pPsmSettings );
 
 /**
  * @brief This function is the implementationof cellular HAL API.
  * Reference Cellular_GetServiceStatus in cellular_api.h for definition.
  */
 CellularError_t Cellular_CommonSetPsmSettings( CellularHandle_t cellularHandle,
-                                         const CellularPsmSettings_t * pPsmSettings );
+                                               const CellularPsmSettings_t * pPsmSettings );
 
 /**
  * @brief This function is the implementationof cellular HAL API.
  * Reference Cellular_GetServiceStatus in cellular_api.h for definition.
  */
 CellularError_t Cellular_CommonGetSimCardInfo( CellularHandle_t cellularHandle,
-                                         CellularSimCardInfo_t * pSimCardInfo );
+                                               CellularSimCardInfo_t * pSimCardInfo );
 
 /**
  * @brief Get SIM card lock status.

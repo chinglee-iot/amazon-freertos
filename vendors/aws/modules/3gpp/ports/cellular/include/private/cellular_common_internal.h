@@ -103,11 +103,13 @@ typedef struct CellularContext
     IotMutex_t PktRespMutex;
     QueueHandle_t pktRespQueue;
     CellularATCommandResponseReceivedCallback_t pktRespCB;
-    CellularATCommandDataPrefixCallback_t pktDataPrefixCB;      /* Data prefix callback function for socket receive function. */
-    void * pDataPrefixCBContext;      /* The pCallbackContext passed to CellularATCommandDataPrefixCallback_t. */
-    void * pPktUsrData;             /* The pData passed to CellularATCommandResponseReceivedCallback_t. */
-    uint16_t PktUsrDataLen;         /* The dataLen passed to CellularATCommandResponseReceivedCallback_t. */
-    char * pCurrentCmd;             /* Debug purpose. */
+    CellularATCommandDataPrefixCallback_t pktDataPrefixCB;         /* Data prefix callback function for socket receive function. */
+    void * pDataPrefixCBContext;                                   /* The pCallbackContext passed to CellularATCommandDataPrefixCallback_t. */
+    CellularATCommandDataSendPrefixCallback_t pktDataSendPrefixCB; /* Data prefix callback function for socket send function. */
+    void * pDataSendPrefixCBContext;                               /* The pCallbackContext passed to CellularATCommandDataSendPrefixCallback_t. */
+    void * pPktUsrData;                                            /* The pData passed to CellularATCommandResponseReceivedCallback_t. */
+    uint16_t PktUsrDataLen;                                        /* The dataLen passed to CellularATCommandResponseReceivedCallback_t. */
+    const char * pCurrentCmd;                                      /* Debug purpose. */
 
     /* Packet IO. */
     bool bPktioUp;

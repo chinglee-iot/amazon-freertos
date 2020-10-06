@@ -83,8 +83,8 @@
 #define CPSMS_POS_TAU            ( 3U )
 #define CPSMS_POS_ACTIVE_TIME    ( 4U )
 
-#define T3324_TIMER_UNIT( x )     ( ( uint32_t ) ( ( x & 0x000000E0 ) >> 5 ) ) /* Bits 6, 7, 8. */
-#define T3324_TIMER_VALUE( x )    ( ( uint32_t ) ( x & 0x0000001F ) )
+#define T3324_TIMER_UNIT( x )     ( ( uint32_t ) ( ( ( x ) & 0x000000E0U ) >> 5U ) ) /* Bits 6, 7, 8. */
+#define T3324_TIMER_VALUE( x )    ( ( uint32_t ) ( ( x ) & 0x0000001FU ) )
 #define T3324_TIMER_DEACTIVATED         ( 0xFFFFFFFFU )
 
 #define T3324_TIMER_UNIT_2SECONDS       ( 0U )
@@ -92,17 +92,19 @@
 #define T3324_TIMER_UNIT_DECIHOURS      ( 2U )
 #define T3324_TIMER_UNIT_DEACTIVATED    ( 7U )
 
-#define T3412_TIMER_UNIT( x )     ( ( uint32_t ) ( ( x & 0x000000E0 ) >> 5 ) ) /* Bits 6, 7, 8. */
-#define T3412_TIMER_VALUE( x )    ( ( uint32_t ) ( x & 0x0000001F ) )
-#define T3412_TIMER_DEACTIVATED         ( 0xFFFFFFFFU )
+#define T3412_TIMER_UNIT( x )     ( ( uint32_t ) ( ( ( x ) & 0x000000E0U ) >> 5U ) ) /* Bits 6, 7, 8. */
+#define T3412_TIMER_VALUE( x )    ( ( uint32_t ) ( ( x ) & 0x0000001FU ) )
+#define T3412_TIMER_DEACTIVATED              ( 0xFFFFFFFFU )
 
-#define T3412_TIMER_UNIT_10MINUTES      ( 0U )
-#define T3412_TIMER_UNIT_1HOURS         ( 1U )
-#define T3412_TIMER_UNIT_10HOURS        ( 2U )
-#define T3412_TIMER_UNIT_2SECONDS       ( 3U )
-#define T3412_TIMER_UNIT_30SECONDS      ( 4U )
-#define T3412_TIMER_UNIT_1MINUTES       ( 5U )
-#define T3412_TIMER_UNIT_DEACTIVATED    ( 7U )
+#define T3412_TIMER_UNIT_10MINUTES           ( 0U )
+#define T3412_TIMER_UNIT_1HOURS              ( 1U )
+#define T3412_TIMER_UNIT_10HOURS             ( 2U )
+#define T3412_TIMER_UNIT_2SECONDS            ( 3U )
+#define T3412_TIMER_UNIT_30SECONDS           ( 4U )
+#define T3412_TIMER_UNIT_1MINUTES            ( 5U )
+#define T3412_TIMER_UNIT_DEACTIVATED         ( 7U )
+
+#define CELULAR_PDN_CONTEXT_TYPE_MAX_SIZE    ( 7U ) /* The length of "IPV4V6" + 1. */
 
 /*-----------------------------------------------------------*/
 
@@ -196,8 +198,42 @@ static CellularError_t atcmdQueryRegStatus( CellularContext_t * pContext,
                                             CellularServiceStatus_t * pServiceStatus );
 static CellularATError_t parseT3412TimerValue( char * pToken,
                                                uint32_t * pTimerValueSeconds );
-static CellularATError_t parseT3314TimerValue( char * pToken,
+static CellularATError_t parseT3324TimerValue( char * pToken,
                                                uint32_t * pTimerValueSeconds );
+static CellularSimCardLockState_t _getSimLockState( char * pToken );
+static CellularPktStatus_t _Cellular_RecvFuncGetSimLockStatus( CellularContext_t * pContext,
+                                                               const CellularATCommandResponse_t * pAtResp,
+                                                               void * pData,
+                                                               uint16_t dataLen );
+static bool _checkCrsmMemoryStatus( const char * pToken );
+static bool _checkCrsmReadStatus( const char * pToken );
+static bool _parseHplmn( char * pToken,
+                         void * pData );
+static CellularPktStatus_t _Cellular_RecvFuncGetHplmn( CellularContext_t * pContext,
+                                                       const CellularATCommandResponse_t * pAtResp,
+                                                       void * pData,
+                                                       uint16_t dataLen );
+static CellularPktStatus_t _Cellular_RecvFuncGetIccid( CellularContext_t * pContext,
+                                                       const CellularATCommandResponse_t * pAtResp,
+                                                       void * pData,
+                                                       uint16_t dataLen );
+static CellularPktStatus_t _Cellular_RecvFuncGetImsi( CellularContext_t * pContext,
+                                                      const CellularATCommandResponse_t * pAtResp,
+                                                      void * pData,
+                                                      uint16_t dataLen );
+static uint32_t appendBinaryPattern( char * cmdBuf,
+                                     uint32_t cmdLen,
+                                     uint32_t value,
+                                     bool endOfString );
+static CellularATError_t parseCpsmsMode( char * pToken,
+                                         CellularPsmSettings_t * pPsmSettings );
+static CellularATError_t parseGetPsmToken( char * pToken,
+                                           uint8_t tokenIndex,
+                                           CellularPsmSettings_t * pPsmSettings );
+static CellularPktStatus_t _Cellular_RecvFuncGetPsmSettings( CellularContext_t * pContext,
+                                                             const CellularATCommandResponse_t * pAtResp,
+                                                             void * pData,
+                                                             uint16_t dataLen );
 
 /*-----------------------------------------------------------*/
 
@@ -699,10 +735,10 @@ static CellularPktStatus_t _Cellular_RecvFuncGetManufactureId( CellularContext_t
 
 /*-----------------------------------------------------------*/
 
-/* Cellular HAL prototype. */
-/* coverity[misra_c_2012_rule_8_13_violation] */
 static CellularPktStatus_t _Cellular_RecvFuncGetNetworkReg( CellularContext_t * pContext,
                                                             const CellularATCommandResponse_t * pAtResp,
+                                                            /* Cellular HAL prototype. */
+                                                            /* coverity[misra_c_2012_rule_8_13_violation] */
                                                             void * pData,
                                                             uint16_t dataLen )
 {
@@ -715,8 +751,12 @@ static CellularPktStatus_t _Cellular_RecvFuncGetNetworkReg( CellularContext_t * 
     {
         pktStatus = CELLULAR_PKT_STATUS_INVALID_HANDLE;
     }
-    else if( ( pAtResp == NULL ) || ( pAtResp->pItm == NULL ) || ( pAtResp->pItm->pLine == NULL ) ||
-             ( pData == NULL ) || ( dataLen != sizeof( CellularNetworkRegType_t ) ) )
+    else if( ( pData == NULL ) || ( dataLen != sizeof( CellularNetworkRegType_t ) ) )
+    {
+        IotLogError( "_Cellular_RecvFuncGetPsreg: pData is invalid" );
+        pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
+    }
+    else if( ( pAtResp == NULL ) || ( pAtResp->pItm == NULL ) || ( pAtResp->pItm->pLine == NULL ) )
     {
         IotLogError( "_Cellular_RecvFuncGetPsreg: response is invalid" );
         pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
@@ -1121,7 +1161,7 @@ static CellularPktStatus_t _Cellular_RecvFuncIpAddress( CellularContext_t * pCon
             else
             {
                 /* This is the case "+CGPADDR: 1". Return "0.0.0.0" in this case.*/
-                strncpy( pData, "0,0,0,0", dataLen );
+                ( void ) strncpy( pData, "0,0,0,0", dataLen );
             }
         }
 
@@ -1331,7 +1371,6 @@ static CellularError_t atcmdQueryRegStatus( CellularContext_t * pContext,
                                             CellularServiceStatus_t * pServiceStatus )
 {
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
-    CellularNetworkRegistrationStatus_t psRegStatus = CELLULAR_NETWORK_REGISTRATION_STATUS_UNKNOWN;
     const cellularAtData_t * pLibAtData = NULL;
 
     if( pContext == NULL )
@@ -1345,19 +1384,6 @@ static CellularError_t atcmdQueryRegStatus( CellularContext_t * pContext,
         if( cellularStatus == CELLULAR_SUCCESS )
         {
             cellularStatus = queryNetworkStatus( pContext, "AT+CEREG?", "+CEREG", CELLULAR_REG_TYPE_CEREG );
-        }
-
-        /* Query CGREG only if the modem did not already acquire PS registration. */
-        _Cellular_LockAtDataMutex( pContext );
-        psRegStatus = pContext->libAtData.psRegStatus;
-        _Cellular_UnlockAtDataMutex( pContext );
-
-        if( ( ( cellularStatus != CELLULAR_SUCCESS ) ) ||
-            ( ( cellularStatus == CELLULAR_SUCCESS ) &&
-              ( psRegStatus != CELLULAR_NETWORK_REGISTRATION_STATUS_REGISTERED_HOME ) &&
-              ( psRegStatus != CELLULAR_NETWORK_REGISTRATION_STATUS_REGISTERED_ROAMING ) ) )
-        {
-            cellularStatus = queryNetworkStatus( pContext, "AT+CGREG?", "+CGREG", CELLULAR_REG_TYPE_CGREG );
         }
     }
 
@@ -1385,6 +1411,7 @@ static CellularATError_t parseT3412TimerValue( char * pToken,
                                                uint32_t * pTimerValueSeconds )
 {
     int32_t tempValue = 0;
+    uint32_t tokenValue = 0;
     uint32_t timerUnitIndex = 0;
     uint32_t timerValue = 0;
     CellularATError_t atCoreStatus = Cellular_ATStrtoi( pToken, 2, &tempValue );
@@ -1396,12 +1423,16 @@ static CellularATError_t parseT3412TimerValue( char * pToken,
             IotLogError( "Error in processing Periodic Processing Active time value. Token %s", pToken );
             atCoreStatus = CELLULAR_AT_ERROR;
         }
+        else
+        {
+            tokenValue = ( uint32_t ) tempValue;
+        }
     }
 
     if( atCoreStatus == CELLULAR_AT_SUCCESS )
     {
-        timerUnitIndex = T3412_TIMER_UNIT( tempValue );
-        timerValue = T3412_TIMER_VALUE( tempValue );
+        timerUnitIndex = T3412_TIMER_UNIT( tokenValue );
+        timerValue = T3412_TIMER_VALUE( tokenValue );
 
         /* Parse the time unit. */
         switch( timerUnitIndex )
@@ -1450,6 +1481,7 @@ static CellularATError_t parseT3324TimerValue( char * pToken,
                                                uint32_t * pTimerValueSeconds )
 {
     int32_t tempValue = 0;
+    uint32_t tokenValue = 0;
     uint32_t timerUnitIndex = 0;
     uint32_t timerValue = 0;
     CellularATError_t atCoreStatus = Cellular_ATStrtoi( pToken, 2, &tempValue );
@@ -1461,12 +1493,16 @@ static CellularATError_t parseT3324TimerValue( char * pToken,
             IotLogError( "Error in processing Periodic Processing Active time value. Token %s", pToken );
             atCoreStatus = CELLULAR_AT_ERROR;
         }
+        else
+        {
+            tokenValue = ( uint32_t ) tempValue;
+        }
     }
 
     if( atCoreStatus == CELLULAR_AT_SUCCESS )
     {
-        timerUnitIndex = T3324_TIMER_UNIT( tempValue );
-        timerValue = T3324_TIMER_VALUE( tempValue );
+        timerUnitIndex = T3324_TIMER_UNIT( tokenValue );
+        timerValue = T3324_TIMER_VALUE( tokenValue );
 
         /* Parse the time unit. */
         switch( timerUnitIndex )
@@ -1499,6 +1535,9 @@ static CellularATError_t parseT3324TimerValue( char * pToken,
 
 /*-----------------------------------------------------------*/
 
+/* This function is provided as common code to cellular module porting.
+ * Vendor may choose to use this function or use their implementation. */
+/* coverity[misra_c_2012_rule_8_7_violation]. */
 CellularError_t Cellular_CommonGetEidrxSettings( CellularHandle_t cellularHandle,
                                                  CellularEidrxSettingsList_t * pEidrxSettingsList )
 {
@@ -1523,6 +1562,7 @@ CellularError_t Cellular_CommonGetEidrxSettings( CellularHandle_t cellularHandle
     }
     else if( pEidrxSettingsList == NULL )
     {
+        IotLogDebug( "Cellular_CommonGetEidrxSettings : Bad parameter" );
         cellularStatus = CELLULAR_BAD_PARAMETER;
     }
     else
@@ -1543,6 +1583,9 @@ CellularError_t Cellular_CommonGetEidrxSettings( CellularHandle_t cellularHandle
 
 /*-----------------------------------------------------------*/
 
+/* This function is provided as common code to cellular module porting.
+ * Vendor may choose to use this function or use their implementation. */
+/* coverity[misra_c_2012_rule_8_7_violation]. */
 CellularError_t Cellular_CommonSetEidrxSettings( CellularHandle_t cellularHandle,
                                                  const CellularEidrxSettings_t * pEidrxSettings )
 {
@@ -1568,6 +1611,7 @@ CellularError_t Cellular_CommonSetEidrxSettings( CellularHandle_t cellularHandle
     }
     else if( pEidrxSettings == NULL )
     {
+        IotLogDebug( "Cellular_CommonSetEidrxSettings : Bad parameter" );
         cellularStatus = CELLULAR_BAD_PARAMETER;
     }
     else
@@ -1583,7 +1627,7 @@ CellularError_t Cellular_CommonSetEidrxSettings( CellularHandle_t cellularHandle
                            pEidrxSettings->rat,
                            PRINTF_BYTE_TO_BINARY_INT4( pEidrxSettings->requestedEdrxVaue ) );
         IotLogDebug( "Eidrx setting: %s ", cmdBuf );
-        /* we should always query the PSMsettings from the network*/
+        /* Query the PSMsettings from the network*/
         pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqSetEidrx );
 
         if( pktStatus != CELLULAR_PKT_STATUS_OK )
@@ -1672,6 +1716,7 @@ CellularError_t Cellular_CommonGetRegisteredNetwork( CellularHandle_t cellularHa
     }
     else if( pNetworkInfo == NULL )
     {
+        IotLogDebug( "Cellular_CommonGetRegisteredNetwork : Bad parameter" );
         cellularStatus = CELLULAR_BAD_PARAMETER;
     }
     else
@@ -1715,6 +1760,7 @@ CellularError_t Cellular_CommonGetServiceStatus( CellularHandle_t cellularHandle
     }
     else if( pServiceStatus == NULL )
     {
+        IotLogDebug( "Cellular_CommonGetServiceStatus : Bad parameter" );
         cellularStatus = CELLULAR_BAD_PARAMETER;
     }
     else
@@ -1769,6 +1815,7 @@ CellularError_t Cellular_CommonGetNetworkTime( CellularHandle_t cellularHandle,
     }
     else if( pNetworkTime == NULL )
     {
+        IotLogDebug( "Cellular_CommonGetNetworkTime : Bad parameter" );
         cellularStatus = CELLULAR_BAD_PARAMETER;
     }
     else
@@ -1839,6 +1886,7 @@ CellularError_t Cellular_CommonGetModemInfo( CellularHandle_t cellularHandle,
     }
     else if( pModemInfo == NULL )
     {
+        IotLogDebug( "Cellular_CommonGetModemInfo : Bad parameter" );
         cellularStatus = CELLULAR_BAD_PARAMETER;
     }
     else
@@ -1885,10 +1933,10 @@ CellularError_t Cellular_CommonGetModemInfo( CellularHandle_t cellularHandle,
 
 /*-----------------------------------------------------------*/
 
-/* Cellular HAL prototype. */
-/* coverity[misra_c_2012_rule_8_13_violation] */
 CellularError_t Cellular_CommonGetIPAddress( CellularHandle_t cellularHandle,
                                              uint8_t contextId,
+                                             /* Cellular HAL prototype. pBuffer is passed to _Cellular_AtcmdRequestWithCallback. */
+                                             /* coverity[misra_c_2012_rule_8_13_violation] */
                                              char * pBuffer,
                                              uint32_t bufferLength )
 {
@@ -1915,7 +1963,7 @@ CellularError_t Cellular_CommonGetIPAddress( CellularHandle_t cellularHandle,
     }
     else if( ( pBuffer == NULL ) || ( bufferLength == 0U ) )
     {
-        IotLogError( "_Cellular_GetIPAddress: Invalid parameter" );
+        IotLogDebug( "_Cellular_GetIPAddress: Invalid parameter" );
         cellularStatus = CELLULAR_BAD_PARAMETER;
     }
     else
@@ -2026,7 +2074,7 @@ CellularError_t Cellular_CommonSetPdnConfig( CellularHandle_t cellularHandle,
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
     char cmdBuf[ CELLULAR_AT_CMD_MAX_SIZE ] = { '\0' };
-    char * pPdpTypeStr = NULL;
+    char pPdpTypeStr[ CELULAR_PDN_CONTEXT_TYPE_MAX_SIZE ] = { '\0' };
     CellularAtReq_t atReqSetPdn =
     {
         cmdBuf,
@@ -2039,7 +2087,7 @@ CellularError_t Cellular_CommonSetPdnConfig( CellularHandle_t cellularHandle,
 
     if( pPdnConfig == NULL )
     {
-        IotLogError( "Cellular_CommonSetPdnConfig: Input parameter is NULL" );
+        IotLogDebug( "Cellular_CommonSetPdnConfig: Input parameter is NULL" );
         cellularStatus = CELLULAR_BAD_PARAMETER;
     }
     else
@@ -2047,18 +2095,20 @@ CellularError_t Cellular_CommonSetPdnConfig( CellularHandle_t cellularHandle,
         switch( pPdnConfig->pdnContextType )
         {
             case CELLULAR_PDN_CONTEXT_IPV4:
-                pPdpTypeStr = "IP";
+                ( void ) strncpy( pPdpTypeStr, "IP", 3U ); /* 3U is the length of "IP" + '\0'. */
                 break;
 
             case CELLULAR_PDN_CONTEXT_IPV6:
-                pPdpTypeStr = "IPV6";
+                ( void ) strncpy( pPdpTypeStr, "IPV6", 5U ); /* 5U is the length of "IPV6" + '\0'. */
                 break;
 
             case CELLULAR_PDN_CONTEXT_IPV4V6:
-                pPdpTypeStr = "IPV4V6";
+                ( void ) strncpy( pPdpTypeStr, "IPV4V6", 7U ); /* 7U is the length of "IPV4V6" + '\0'. */
                 break;
 
             default:
+                IotLogDebug( "Cellular_CommonSetPdnConfig: Invalid pdn context type %d",
+                             CELLULAR_PDN_CONTEXT_IPV4V6 );
                 cellularStatus = CELLULAR_BAD_PARAMETER;
                 break;
         }
@@ -2235,55 +2285,6 @@ static CellularPktStatus_t _Cellular_RecvFuncGetSimLockStatus( CellularContext_t
 
 /*-----------------------------------------------------------*/
 
-/* Cellular HAL API. */
-/* coverity[misra_c_2012_rule_8_7_violation] */
-CellularError_t Cellular_CommonGetSimCardLockStatus( CellularHandle_t cellularHandle,
-                                                     CellularSimCardStatus_t * pSimCardStatus )
-{
-    CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
-    CellularError_t cellularStatus = CELLULAR_SUCCESS;
-    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
-    CellularAtReq_t atReqGetSimLockStatus =
-    {
-        "AT+CPIN?",
-        CELLULAR_AT_WITH_PREFIX,
-        "+CPIN",
-        _Cellular_RecvFuncGetSimLockStatus,
-        NULL,
-        0,
-    };
-
-    /* pContext is checked in _Cellular_CheckLibraryStatus function. */
-    cellularStatus = _Cellular_CheckLibraryStatus( pContext );
-
-    if( cellularStatus != CELLULAR_SUCCESS )
-    {
-        IotLogDebug( "_Cellular_CheckLibraryStatus failed" );
-    }
-    else if( pSimCardStatus == NULL )
-    {
-        cellularStatus = CELLULAR_BAD_PARAMETER;
-    }
-    else
-    {
-        /* Initialize the sim state and the sim lock state. */
-        pSimCardStatus->simCardLockState = CELLULAR_SIM_CARD_LOCK_UNKNOWN;
-
-        atReqGetSimLockStatus.pData = &pSimCardStatus->simCardLockState;
-        atReqGetSimLockStatus.dataLen = sizeof( CellularSimCardLockState_t );
-
-        pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqGetSimLockStatus );
-
-        cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
-        IotLogDebug( "_Cellular_GetSimStatus, Sim Insert State[%d], Lock State[%d]",
-                     pSimCardStatus->simCardState, pSimCardStatus->simCardLockState );
-    }
-
-    return cellularStatus;
-}
-
-/*-----------------------------------------------------------*/
-
 static bool _checkCrsmMemoryStatus( const char * pToken )
 {
     bool memoryStatus = true;
@@ -2320,7 +2321,7 @@ static bool _checkCrsmReadStatus( const char * pToken )
         readStatus = false;
     }
 
-    if( readStatus )
+    if( readStatus == true )
     {
         /* checking the parameter sw1 in AT command response for successful CRSM read.
          * Refer 3GPP Spec TS 51.011 Section 9.4. */
@@ -2352,7 +2353,7 @@ static bool _parseHplmn( char * pToken,
 
     if( parseStatus == true )
     {
-        /* Checking if the very first HPLMN entry in AT command Response is valid*/
+        /* Checking if the very first HPLMN entry in AT command Response is valid. */
         if( ( strlen( pToken ) < ( CRSM_HPLMN_RAT_LENGTH ) ) || ( strncmp( pToken, "FFFFFF", 6 ) == 0 ) )
         {
             IotLogError( "_parseHplmn: Error in Processing HPLMN: Invalid Token %s", pToken );
@@ -2386,6 +2387,7 @@ static bool _parseHplmn( char * pToken,
     return parseStatus;
 }
 
+/*-----------------------------------------------------------*/
 
 /* Cellular HAL types. */
 /* coverity[misra_c_2012_rule_8_13_violation] */
@@ -2436,7 +2438,7 @@ static CellularPktStatus_t _Cellular_RecvFuncGetHplmn( CellularContext_t * pCont
         {
             parseStatus = _checkCrsmReadStatus( pToken );
 
-            if( !parseStatus )
+            if( parseStatus == false )
             {
                 atCoreStatus = CELLULAR_AT_ERROR;
             }
@@ -2451,7 +2453,7 @@ static CellularPktStatus_t _Cellular_RecvFuncGetHplmn( CellularContext_t * pCont
         {
             parseStatus = _checkCrsmMemoryStatus( pToken );
 
-            if( !parseStatus )
+            if( parseStatus == false )
             {
                 atCoreStatus = CELLULAR_AT_ERROR;
             }
@@ -2466,7 +2468,7 @@ static CellularPktStatus_t _Cellular_RecvFuncGetHplmn( CellularContext_t * pCont
         {
             parseStatus = _parseHplmn( pToken, pData );
 
-            if( !parseStatus )
+            if( parseStatus == false )
             {
                 atCoreStatus = CELLULAR_AT_ERROR;
             }
@@ -2478,6 +2480,7 @@ static CellularPktStatus_t _Cellular_RecvFuncGetHplmn( CellularContext_t * pCont
     return pktStatus;
 }
 
+/*-----------------------------------------------------------*/
 
 /* Cellular HAL types. */
 /* coverity[misra_c_2012_rule_8_13_violation] */
@@ -2495,9 +2498,14 @@ static CellularPktStatus_t _Cellular_RecvFuncGetIccid( CellularContext_t * pCont
         pktStatus = CELLULAR_PKT_STATUS_INVALID_HANDLE;
     }
     else if( ( pAtResp == NULL ) || ( pAtResp->pItm == NULL ) ||
-             ( pAtResp->pItm->pLine == NULL ) || ( pData == NULL ) )
+             ( pAtResp->pItm->pLine == NULL ) )
     {
-        IotLogError( "getIccid: Response in invalid " );
+        IotLogError( "getIccid: pAtResp is invalid" );
+        pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
+    }
+    else if( ( pData == NULL ) || ( dataLen != ( CELLULAR_ICCID_MAX_SIZE + 1U ) ) )
+    {
+        IotLogError( "getIccid: pData is invalid" );
         pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
     }
     else
@@ -2582,6 +2590,56 @@ static CellularPktStatus_t _Cellular_RecvFuncGetImsi( CellularContext_t * pConte
 
 /* Cellular HAL API. */
 /* coverity[misra_c_2012_rule_8_7_violation] */
+CellularError_t Cellular_CommonGetSimCardLockStatus( CellularHandle_t cellularHandle,
+                                                     CellularSimCardStatus_t * pSimCardStatus )
+{
+    CellularContext_t * pContext = ( CellularContext_t * ) cellularHandle;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularAtReq_t atReqGetSimLockStatus =
+    {
+        "AT+CPIN?",
+        CELLULAR_AT_WITH_PREFIX,
+        "+CPIN",
+        _Cellular_RecvFuncGetSimLockStatus,
+        NULL,
+        0,
+    };
+
+    /* pContext is checked in _Cellular_CheckLibraryStatus function. */
+    cellularStatus = _Cellular_CheckLibraryStatus( pContext );
+
+    if( cellularStatus != CELLULAR_SUCCESS )
+    {
+        IotLogDebug( "_Cellular_CheckLibraryStatus failed" );
+    }
+    else if( pSimCardStatus == NULL )
+    {
+        IotLogDebug( "Cellular_CommonGetSimCardLockStatus : Bad paremeter" );
+        cellularStatus = CELLULAR_BAD_PARAMETER;
+    }
+    else
+    {
+        /* Initialize the sim state and the sim lock state. */
+        pSimCardStatus->simCardLockState = CELLULAR_SIM_CARD_LOCK_UNKNOWN;
+
+        atReqGetSimLockStatus.pData = &pSimCardStatus->simCardLockState;
+        atReqGetSimLockStatus.dataLen = sizeof( CellularSimCardLockState_t );
+
+        pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqGetSimLockStatus );
+
+        cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+        IotLogDebug( "_Cellular_GetSimStatus, Sim Insert State[%d], Lock State[%d]",
+                     pSimCardStatus->simCardState, pSimCardStatus->simCardLockState );
+    }
+
+    return cellularStatus;
+}
+
+/*-----------------------------------------------------------*/
+
+/* Cellular HAL API. */
+/* coverity[misra_c_2012_rule_8_7_violation] */
 CellularError_t Cellular_CommonGetSimCardInfo( CellularHandle_t cellularHandle,
                                                CellularSimCardInfo_t * pSimCardInfo )
 {
@@ -2626,6 +2684,7 @@ CellularError_t Cellular_CommonGetSimCardInfo( CellularHandle_t cellularHandle,
     }
     else if( pSimCardInfo == NULL )
     {
+        IotLogDebug( "Cellular_CommonGetSimCardInfo : Bad paremeter" );
         cellularStatus = CELLULAR_BAD_PARAMETER;
     }
     else
@@ -2721,6 +2780,7 @@ CellularError_t Cellular_CommonSetPsmSettings( CellularHandle_t cellularHandle,
     }
     else if( pPsmSettings == NULL )
     {
+        IotLogDebug( "Cellular_CommonSetPsmSettings : Bad parameter" );
         cellularStatus = CELLULAR_BAD_PARAMETER;
     }
     else
@@ -2846,10 +2906,14 @@ static CellularPktStatus_t _Cellular_RecvFuncGetPsmSettings( CellularContext_t *
         IotLogError( "GetPsmSettings: Invalid context" );
         pktStatus = CELLULAR_PKT_STATUS_FAILURE;
     }
-    else if( ( pAtResp == NULL ) || ( pAtResp->pItm == NULL ) ||
-             ( pAtResp->pItm->pLine == NULL ) || ( pData == NULL ) || ( dataLen != sizeof( CellularPsmSettings_t ) ) )
+    else if( ( pAtResp == NULL ) || ( pAtResp->pItm == NULL ) || ( pAtResp->pItm->pLine == NULL ) )
     {
-        IotLogError( "GetPsmSettings: Invalid param" );
+        IotLogError( "GetPsmSettings: Invalid input line" );
+        pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
+    }
+    else if( ( pData == NULL ) || ( dataLen != sizeof( CellularPsmSettings_t ) ) )
+    {
+        IotLogError( "GetPsmSettings: Invalid param pData" );
         pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
     }
     else
@@ -2930,11 +2994,12 @@ CellularError_t Cellular_CommonGetPsmSettings( CellularHandle_t cellularHandle,
     }
     else if( pPsmSettings == NULL )
     {
+        IotLogDebug( "Cellular_CommonGetPsmSettings : Bad parameter" );
         cellularStatus = CELLULAR_BAD_PARAMETER;
     }
     else
     {
-        /* initialize the data. */
+        /* Initialize the data. */
         ( void ) memset( pPsmSettings, 0, sizeof( CellularPsmSettings_t ) );
         pPsmSettings->mode = 0xFF;
 

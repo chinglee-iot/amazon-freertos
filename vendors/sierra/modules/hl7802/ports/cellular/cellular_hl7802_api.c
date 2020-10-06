@@ -95,6 +95,10 @@
 #define CELLULAR_PDN_STATE_IDLE                       ( 3U )
 #define CELLULAR_PDN_STATE_DISCONNECTING              ( 4U )
 
+#define KSELACQ_RAT_CATM_CHAR                         ( '1' )
+#define KSELACQ_RAT_NBIOT_CHAR                        ( '2' )
+#define KSELACQ_RAT_GSM_CHAR                          ( '3' )
+
 /*-----------------------------------------------------------*/
 
 /**
@@ -129,7 +133,8 @@ static CellularError_t _Cellular_GetSocketStat( CellularHandle_t cellularHandle,
                                                 CellularSocketHandle_t socketHandle,
                                                 socketStat_t * pSocketStat );
 static CellularPktStatus_t socketRecvDataPrefix( void * pCallbackContext,
-                                                 const char * pLine,
+                                                 char * pLine,
+                                                 uint32_t lineLength,
                                                  char ** ppDataStart,
                                                  uint32_t * pDataLength );
 static CellularATError_t getDataFromResp( const CellularATCommandResponse_t * pAtResp,
@@ -195,10 +200,12 @@ static CellularPktStatus_t _Cellular_RecvFuncGetSocketStat( CellularContext_t * 
 
     if( pContext == NULL )
     {
+        IotLogError( "GetSocketStat: Invalid handle" );
         pktStatus = CELLULAR_PKT_STATUS_INVALID_HANDLE;
     }
     else if( ( pSocketStat == NULL ) || ( dataLen != sizeof( socketStat_t ) ) )
     {
+        IotLogError( "GetSocketStat: Bad parameters" );
         pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
     }
     else if( ( pAtResp == NULL ) || ( pAtResp->pItm == NULL ) || ( pAtResp->pItm->pLine == NULL ) )
@@ -354,7 +361,8 @@ static CellularError_t _Cellular_GetSocketStat( CellularHandle_t cellularHandle,
 /*-----------------------------------------------------------*/
 
 static CellularPktStatus_t socketRecvDataPrefix( void * pCallbackContext,
-                                                 const char * pLine,
+                                                 char * pLine,
+                                                 uint32_t lineLength,
                                                  char ** ppDataStart,
                                                  uint32_t * pDataLength )
 {
@@ -367,7 +375,13 @@ static CellularPktStatus_t socketRecvDataPrefix( void * pCallbackContext,
 
     if( ( pLine == NULL ) || ( ppDataStart == NULL ) || ( pDataLength == NULL ) || ( pCallbackContext == NULL ) )
     {
+        IotLogError( "socketRecvData: Bad parameters" );
         pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
+    }
+    else if( ( lineLength < ( SOCKET_DATA_CONNECT_TOKEN_LEN + 2U ) ) && ( *pRecvDataLength > 0 ) )
+    {
+        /* Need more data to decide the data prefix. */
+        pktStatus = CELLULAR_PKT_STATUS_SIZE_MISMATCH;
     }
     else
     {
@@ -380,6 +394,7 @@ static CellularPktStatus_t socketRecvDataPrefix( void * pCallbackContext,
         }
         else
         {
+            /* Prefix string which is not "CONNECT" does't indicate data start. Set data length to 0.*/
             *pDataLength = 0;
         }
     }
@@ -473,7 +488,7 @@ static CellularPktStatus_t _Cellular_RecvFuncData( CellularContext_t * pContext,
     }
     else if( ( pDataRecv == NULL ) || ( pDataRecv->pData == NULL ) || ( pDataRecv->pDataLen == NULL ) )
     {
-        IotLogError( "Receive Data: Bad param" );
+        IotLogError( "Receive Data: Bad parameters" );
         pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
     }
     else
@@ -516,7 +531,7 @@ static CellularError_t buildSocketConfig( CellularSocketHandle_t socketHandle,
 
     if( pCmdBuf == NULL )
     {
-        IotLogError( "buildSocketConfig: Invalid command buffer" );
+        IotLogDebug( "buildSocketConfig: Invalid command buffer" );
         cellularStatus = CELLULAR_BAD_PARAMETER;
     }
     else if( socketHandle->socketProtocol != CELLULAR_SOCKET_PROTOCOL_TCP )
@@ -560,7 +575,7 @@ static CellularError_t storeAccessModeAndAddress( CellularContext_t * pContext,
     }
     else if( ( pRemoteSocketAddress == NULL ) || ( socketHandle == NULL ) )
     {
-        IotLogError( "storeAccessModeAndAddress: Invalid socket address" );
+        IotLogDebug( "storeAccessModeAndAddress: Invalid socket address" );
         cellularStatus = CELLULAR_BAD_PARAMETER;
     }
     else if( socketHandle->socketState != SOCKETSTATE_ALLOCATED )
@@ -607,10 +622,12 @@ static CellularPktStatus_t _Cellular_RecvFuncGetTcpCfgSessionId( CellularContext
 
     if( pContext == NULL )
     {
+        IotLogError( "GetTcpCfgSessionId: Invalid handle" );
         pktStatus = CELLULAR_PKT_STATUS_INVALID_HANDLE;
     }
     else if( ( pSessionId == NULL ) || ( dataLen != sizeof( uint8_t ) ) )
     {
+        IotLogError( "GetTcpCfgSessionId: Bad parameters" );
         pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
     }
     else if( ( pAtResp == NULL ) || ( pAtResp->pItm == NULL ) || ( pAtResp->pItm->pLine == NULL ) )
@@ -908,15 +925,15 @@ static CellularRat_t convertKselacqIndexToRat( char ratIndex )
 
     switch( ratIndex )
     {
-        case '1':
+        case KSELACQ_RAT_CATM_CHAR:
             rat = CELLULAR_RAT_CATM1;
             break;
 
-        case '2':
+        case KSELACQ_RAT_NBIOT_CHAR:
             rat = CELLULAR_RAT_NBIOT;
             break;
 
-        case '3':
+        case KSELACQ_RAT_GSM_CHAR:
             rat = CELLULAR_RAT_GSM;
             break;
 
@@ -1168,10 +1185,12 @@ static CellularPktStatus_t _Cellular_RecvFuncGetSignalInfo( CellularContext_t * 
 
     if( pContext == NULL )
     {
+        IotLogError( "GetSignalInfo: Invalid handle" );
         pktStatus = CELLULAR_PKT_STATUS_INVALID_HANDLE;
     }
     else if( ( pSignalInfo == NULL ) || ( dataLen != sizeof( CellularSignalInfo_t ) ) )
     {
+        IotLogError( "GetSignalInfo: Invalid param" );
         pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
     }
     else if( ( pAtResp == NULL ) || ( pAtResp->pItm == NULL ) || ( pAtResp->pItm->pLine == NULL ) )
@@ -1269,7 +1288,7 @@ CellularError_t Cellular_SocketRecv( CellularHandle_t cellularHandle,
     }
     else if( ( pBuffer == NULL ) || ( pReceivedDataLength == NULL ) || ( bufferLength == 0U ) )
     {
-        IotLogError( "_Cellular_RecvData: Bad input Param" );
+        IotLogDebug( "_Cellular_RecvData: Bad input Param" );
         cellularStatus = CELLULAR_BAD_PARAMETER;
     }
     else
@@ -1380,7 +1399,7 @@ CellularError_t Cellular_SocketSend( CellularHandle_t cellularHandle,
     }
     else if( ( pData == NULL ) || ( pSentDataLength == NULL ) || ( dataLength == 0U ) )
     {
-        IotLogError( "Cellular_SocketSend: Invalid parameter" );
+        IotLogDebug( "Cellular_SocketSend: Invalid parameter" );
         cellularStatus = CELLULAR_BAD_PARAMETER;
     }
     else if( socketHandle->socketState != SOCKETSTATE_CONNECTED )
@@ -1554,7 +1573,7 @@ CellularError_t Cellular_SocketConnect( CellularHandle_t cellularHandle,
     }
     else if( pRemoteSocketAddress == NULL )
     {
-        IotLogError( "Cellular_SocketConnect: Invalid socket address" );
+        IotLogDebug( "Cellular_SocketConnect: Invalid socket address" );
         cellularStatus = CELLULAR_BAD_PARAMETER;
     }
     else if( socketHandle == NULL )
@@ -1729,10 +1748,12 @@ static CellularPktStatus_t _Cellular_RecvFuncPacketSwitchStatus( CellularContext
 
     if( pContext == NULL )
     {
+        IotLogError( "PacketSwitchStatus: Invalid handle" );
         pktStatus = CELLULAR_PKT_STATUS_INVALID_HANDLE;
     }
     else if( ( pData == NULL ) || ( dataLen != sizeof( bool ) ) )
     {
+        IotLogError( "GetPacketSwitchStatus: Invalid param" );
         pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
     }
     else if( ( pAtResp == NULL ) || ( pAtResp->pItm == NULL ) || ( pAtResp->pItm->pLine == NULL ) )
@@ -2169,8 +2190,8 @@ CellularError_t Cellular_GetPdnStatus( CellularHandle_t cellularHandle,
     }
     else if( ( pTempPdnStatusBuffer == NULL ) || ( pNumStatus == NULL ) || ( numStatusBuffers < 1u ) )
     {
+        IotLogDebug( "_Cellular_GetPdnStatus: Bad input Parameter " );
         cellularStatus = CELLULAR_BAD_PARAMETER;
-        IotLogWarn( "_Cellular_GetPdnStatus: Bad input Parameter " );
     }
     else
     {
@@ -2233,12 +2254,13 @@ CellularError_t Cellular_GetEidrxSettings( CellularHandle_t cellularHandle,
     }
     else if( pEidrxSettingsList == NULL )
     {
+        IotLogDebug( "Cellular_GetEidrxSettings : Bad parameter" );
         cellularStatus = CELLULAR_BAD_PARAMETER;
     }
     else
     {
         ( void ) memset( pEidrxSettingsList, 0, sizeof( CellularEidrxSettingsList_t ) );
-        /* we should always query the pEidrxSettings from the network. */
+        /* Query the pEidrxSettings from the network. */
         pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqGetEidrx );
 
         if( pktStatus != CELLULAR_PKT_STATUS_OK )
@@ -2280,6 +2302,7 @@ CellularError_t Cellular_SetEidrxSettings( CellularHandle_t cellularHandle,
     }
     else if( pEidrxSettings == NULL )
     {
+        IotLogDebug( "Cellular_SetEidrxSettings : Bad parameter" );
         cellularStatus = CELLULAR_BAD_PARAMETER;
     }
     else
@@ -2340,6 +2363,7 @@ CellularError_t Cellular_SetRatPriority( CellularHandle_t cellularHandle,
     else if( ( pRatPriorities == NULL ) || ( ratPrioritiesLength == 0U ) ||
              ( ratPrioritiesLength > ( uint8_t ) CELLULAR_MAX_RAT_PRIORITY_COUNT ) )
     {
+        IotLogDebug( "Cellular_SetRatPriority : Bad parameter" );
         cellularStatus = CELLULAR_BAD_PARAMETER;
     }
     else
@@ -2363,7 +2387,7 @@ CellularError_t Cellular_SetRatPriority( CellularHandle_t cellularHandle,
             }
             else
             {
-                IotLogError( "Cellular_SetRatPriority : unsupported mode %d", pRatPriorities[ i ] );
+                IotLogDebug( "Cellular_SetRatPriority : unsupported mode %d", pRatPriorities[ i ] );
                 cellularStatus = CELLULAR_BAD_PARAMETER;
                 break;
             }
@@ -2420,6 +2444,7 @@ CellularError_t Cellular_GetRatPriority( CellularHandle_t cellularHandle,
              ( ratPrioritiesLength > ( uint8_t ) CELLULAR_MAX_RAT_PRIORITY_COUNT ) ||
              ( pReceiveRatPrioritesLength == NULL ) )
     {
+        IotLogDebug( "Cellular_GetRatPriority : Bad parameter" );
         cellularStatus = CELLULAR_BAD_PARAMETER;
     }
     else
@@ -2474,6 +2499,7 @@ CellularError_t Cellular_GetSignalInfo( CellularHandle_t cellularHandle,
     }
     else if( pSignalInfo == NULL )
     {
+        IotLogDebug( "Cellular_GetSignalInfo : Bad parameter" );
         cellularStatus = CELLULAR_BAD_PARAMETER;
     }
     else
