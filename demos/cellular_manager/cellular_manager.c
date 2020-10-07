@@ -36,8 +36,8 @@
 #include "platform/iot_threads.h"
 
 /* cellular include. */
-#include "cellular_config_defaults.h"
 #include "aws_cellular_config.h"
+#include "cellular_config_defaults.h"
 #include "cellular_manager.h"
 #include "cellular_api.h"
 
@@ -381,7 +381,7 @@ static cellularSmState_t _cellularManagerSmTriggerSwitchSmOff( cellularSmEvent_t
             break;
 
         default:
-            IotLogWarn( "_cellularManagerSmTriggerSwitchSmOff: Wrong event received: %s", event );
+            IotLogWarn( "_cellularManagerSmTriggerSwitchSmOff: Wrong event received: %d", event );
             break;
     }
 
@@ -407,6 +407,10 @@ static cellularSmState_t _cellularManagerSmTriggerSwitchSmOn( cellularSmEvent_t 
 
         case CELLULAR_EVENT_ATTACHED:
             newState = CELLULAR_SM_REGISTERED;
+            break;
+
+        case CELLULAR_EVENT_DETACHED:
+            newState = CELLULAR_SM_ON;
             break;
 
         default:

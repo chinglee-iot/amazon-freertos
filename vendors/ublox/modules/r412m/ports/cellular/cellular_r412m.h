@@ -1,0 +1,65 @@
+/*
+ * Amazon FreeRTOS CELLULAR Preview Release
+ * Copyright (C) 2020 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+ * the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+ * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ *
+ * http://aws.amazon.com/freertos
+ * http://www.FreeRTOS.org
+ */
+
+#ifndef __CELLULAR_R412M_H__
+#define __CELLULAR_R412M_H__
+
+/* Configure logs for R412M functions. */
+#ifdef IOT_LOG_LEVEL_CELLULAR
+    #define LIBRARY_LOG_LEVEL        IOT_LOG_LEVEL_CELLULAR
+#else
+    #ifdef IOT_LOG_LEVEL_GLOBAL
+        #define LIBRARY_LOG_LEVEL    IOT_LOG_LEVEL_GLOBAL
+    #else
+        #define LIBRARY_LOG_LEVEL    IOT_LOG_INFO
+    #endif
+#endif
+
+#define LIBRARY_LOG_NAME    ( "CELLULAR_R412M" )
+#include "iot_logging_setup.h"
+
+/*-----------------------------------------------------------*/
+
+#define MIN_TCP_SESSION_ID          ( 0U )
+#define MAX_TCP_SESSION_ID          ( 6U )
+#define TCP_SESSION_TABLE_LEGNTH    ( MAX_TCP_SESSION_ID + 1 )
+
+#define INVALID_SOCKET_INDEX        ( UINT32_MAX )
+
+/*-----------------------------------------------------------*/
+
+typedef struct cellularModuleContext
+{
+    uint32_t pSessionMap[ TCP_SESSION_TABLE_LEGNTH ];
+} cellularModuleContext_t;
+
+/*-----------------------------------------------------------*/
+
+uint32_t _Cellular_GetSocketId( CellularContext_t * pContext,
+                                uint8_t sessionId );
+
+/*-----------------------------------------------------------*/
+
+#endif /* ifndef __CELLULAR_R412M_H__ */
