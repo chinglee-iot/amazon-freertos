@@ -57,6 +57,7 @@ static void _cellular_UrcProcessUusocl( CellularContext_t * pContext,
 CellularAtParseTokenMap_t CellularUrcHandlerTable[] =
 {
     { "CEREG",  Cellular_CommonUrcProcessCereg },
+    { "CGREG",  Cellular_CommonUrcProcessCgreg  },
     { "CREG",   Cellular_CommonUrcProcessCreg  },
     { "UUSOCL", _cellular_UrcProcessUusocl     },               /* Socket close URC. */
     { "UUSOCO", _cellular_UrcProcessUusoco     },               /* Socket connect URC. */

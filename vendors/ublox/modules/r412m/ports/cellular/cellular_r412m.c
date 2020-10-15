@@ -154,6 +154,102 @@ CellularError_t Cellular_ModuleCleanUp( const CellularContext_t * pContext )
 
 /*-----------------------------------------------------------*/
 
+/* Parse AT response for current MNO profile */
+static CellularPktStatus_t _Cellular_RecvFuncGetCurrentMNOProfile( CellularContext_t* pContext,
+                                                                   const CellularATCommandResponse_t* pAtResp,
+                                                                   void* pData,
+                                                                   uint16_t dataLen)
+{
+    char* pInputLine = NULL;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+    MNOProfileType_t* pCurrentMNOProfile = (MNOProfileType_t*)pData;
+    char* pToken = NULL;
+    int32_t tempValue = 0;
+
+    if (pContext == NULL)
+    {
+        IotLogError("_Cellular_RecvFuncGetCurrentMNOProfile: Invalid handle");
+        pktStatus = CELLULAR_PKT_STATUS_INVALID_HANDLE;
+    }
+    else if ((pData == NULL) || (dataLen != sizeof(MNOProfileType_t)))
+    {
+        IotLogError("_Cellular_RecvFuncGetCurrentMNOProfile: Invalid param");
+        pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
+    }
+    else if ((pAtResp == NULL) || (pAtResp->pItm == NULL) || (pAtResp->pItm->pLine == NULL))
+    {
+        IotLogError("_Cellular_RecvFuncGetCurrentMNOProfile: Input Line passed is NULL");
+        pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+    }
+    else
+    {
+        pInputLine = pAtResp->pItm->pLine;
+
+        /* Remove prefix. */
+        atCoreStatus = Cellular_ATRemovePrefix(&pInputLine);
+
+        /* Remove leading space. */
+        if (atCoreStatus == CELLULAR_AT_SUCCESS)
+        {
+            atCoreStatus = Cellular_ATRemoveLeadingWhiteSpaces(&pInputLine);
+        }
+
+        if (atCoreStatus == CELLULAR_AT_SUCCESS)
+        {
+            atCoreStatus = Cellular_ATGetNextTok(&pInputLine, &pToken);
+
+            if (atCoreStatus == CELLULAR_AT_SUCCESS)
+            {
+                atCoreStatus = Cellular_ATStrtoi(pToken, 10, &tempValue);
+
+                if (atCoreStatus == CELLULAR_AT_SUCCESS)
+                {
+                    if ((tempValue >= MNO_PROFILE_SW_DEFAULT) && (tempValue <= MNO_PROFILE_STANDARD_EUROPE))
+                    {
+                        *pCurrentMNOProfile = tempValue;
+                        IotLogInfo("_Cellular_RecvFuncGetCurrentMNOProfile: pCurrentMNOProfile [%d]", *pCurrentMNOProfile);
+                    }
+                }
+                else
+                {
+                    atCoreStatus = CELLULAR_AT_ERROR;
+                }
+            }
+        }
+
+        pktStatus = _Cellular_TranslateAtCoreStatus(atCoreStatus);
+    }
+
+    return pktStatus;
+}
+
+/*-----------------------------------------------------------*/
+/* Get modem's current MNO profile */
+static CellularError_t _Cellular_GetCurrentMNOProfile(CellularContext_t* pContext,
+                                                       MNOProfileType_t* pCurrentMNOProfile)
+{
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularAtReq_t atReqGetCurrentMNOProfile =
+    {
+        "AT+UMNOPROF?",
+        CELLULAR_AT_WITH_PREFIX,
+        "+UMNOPROF",
+        _Cellular_RecvFuncGetCurrentMNOProfile,
+        pCurrentMNOProfile,
+        sizeof(MNOProfileType_t),
+    };
+
+    /* Internal function. Callee check parameters. */
+    pktStatus = _Cellular_AtcmdRequestWithCallback(pContext, atReqGetCurrentMNOProfile);
+    cellularStatus = _Cellular_TranslatePktStatus(pktStatus);
+
+    return cellularStatus;
+}
+
+/*-----------------------------------------------------------*/
+
 /* Cellular HAL common porting interface. */
 /* coverity[misra_c_2012_rule_8_7_violation] */
 CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
@@ -193,7 +289,7 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
 
         if( cellularStatus == CELLULAR_SUCCESS )
         {
-            /* Disable RTS/CTS hardware flow control. */
+            /* Enable RTS/CTS hardware flow control. */
             atReqGetNoResult.pAtCmd = "AT+IFC=2,2";
             cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
         }
@@ -201,22 +297,36 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
         if( cellularStatus == CELLULAR_SUCCESS )
         {
             /* Setup mobile network operator profiles. */
-            atReqGetNoResult.pAtCmd = "AT+UMNOPROF=0";
-            cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
+
+            /* Check current MNO profile first to avoid unneccessary modem reboot. */
+            MNOProfileType_t currentMNOProfile = MNO_PROFILE_NOT_SET;
+            cellularStatus = _Cellular_GetCurrentMNOProfile(pContext, &currentMNOProfile);
+
+            IotLogInfo("Cellular_ModuleEnableUE: currentMNOProfile = [%d], desiredProfile = [%d]", currentMNOProfile, CELLULAR_CONFIG_SET_MNO_PROFILE);
+            
+            if( cellularStatus == CELLULAR_SUCCESS )
+            {
+                // Set MNO profile if not set already
+                if( ( currentMNOProfile != CELLULAR_CONFIG_SET_MNO_PROFILE ) && ( currentMNOProfile != MNO_PROFILE_NOT_SET ) )
+                {
+                    (void)snprintf(atReqGetNoResult.pAtCmd, CELLULAR_AT_CMD_MAX_SIZE, "%s%d%s", "AT+COPS=2;+UMNOPROF=", CELLULAR_CONFIG_SET_MNO_PROFILE, ";+CFUN=15");
+                    cellularStatus = sendAtCommandWithRetryTimeout(pContext, &atReqGetNoResult);
+                }
+            }
         }
 
         if( cellularStatus == CELLULAR_SUCCESS )
         {
             /* Setup bands. */
-            atReqGetNoResult.pAtCmd = "AT+UBANDMASK=0,33816725";
-            cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
+            /*atReqGetNoResult.pAtCmd = "AT+UBANDMASK=0,33816725";
+            cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );*/
         }
 
         if( cellularStatus == CELLULAR_SUCCESS )
         {
             /* Setup default RAT. */
-            atReqGetNoResult.pAtCmd = "AT+URAT=7";
-            cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );
+            /*atReqGetNoResult.pAtCmd = "AT+URAT=7";
+            cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );*/
         }
 
         if( cellularStatus == CELLULAR_SUCCESS )
@@ -251,6 +361,9 @@ CellularError_t Cellular_ModuleEnableUrc( CellularContext_t * pContext )
 
     atReqGetNoResult.pAtCmd = "AT+CREG=2";
     ( void ) _Cellular_AtcmdRequestWithCallback( pContext, atReqGetNoResult );
+
+    atReqGetNoResult.pAtCmd = "AT+CGREG=2";
+    (void)_Cellular_AtcmdRequestWithCallback(pContext, atReqGetNoResult);
 
     atReqGetNoResult.pAtCmd = "AT+CEREG=2";
     ( void ) _Cellular_AtcmdRequestWithCallback( pContext, atReqGetNoResult );

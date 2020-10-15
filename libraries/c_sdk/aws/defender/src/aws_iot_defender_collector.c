@@ -83,7 +83,10 @@ static void _assertSuccessOrBufferToSmall( IotSerializerError_t error );
 
 static void _copyMetricsFlag( void );
 
-static void _serialize( void );
+/* Renamed _serialize() to resolve the below build error issue:
+D:\amazon-freertos\libraries\c_sdk\aws\defender\src\aws_iot_defender_
+collector.c(209,1): error C2169: '_serialize': intrinsic function, cannot be defined [D:\amazon-freertos\build-r412m\afr_defender.vcxproj]*/
+static void _serializeFunction( void );
 
 static void _serializeTcpConnections( void * param1,
                                       const IotListDouble_t * pTcpConnectionsMetricsList );
@@ -145,7 +148,7 @@ bool AwsIotDefenderInternal_CreateReport( void )
     _AwsIotDefenderReportId = IotClock_GetTimeMs();
 
     /* Dry-run serialization to calculate the required size. */
-    _serialize();
+    _serializeFunction();
 
     /* Get the calculated required size. */
     dataSize = _pAwsIotDefenderEncoder->getExtraBufferSizeNeeded( pEncoderObject );
@@ -162,7 +165,7 @@ bool AwsIotDefenderInternal_CreateReport( void )
         _report.size = dataSize;
 
         /* Actual serialization. */
-        _serialize();
+        _serializeFunction();
 
         /* Ouput the report to stdout if debugging mode is enabled. */
         #if DEBUG_CBOR_PRINT == 1
@@ -205,7 +208,7 @@ void AwsIotDefenderInternal_DeleteReport( void )
  *  }
  * }
  */
-static void _serialize( void )
+static void _serializeFunction( void )
 {
     IotSerializerError_t serializerError = IOT_SERIALIZER_SUCCESS;
 

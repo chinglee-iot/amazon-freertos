@@ -581,6 +581,7 @@ static char * _Cellular_ReadLine( CellularContext_t * pContext,
         {
             pRead[ bytesRead ] = '\0';
 
+            IotLogDebug( "AT Read %d bytes, data[%p]", bytesRead, pRead);
             /* Set the pBytesRead only when actual bytes read from comm interface. */
             *pBytesRead = bytesRead + partialDataRead;
 

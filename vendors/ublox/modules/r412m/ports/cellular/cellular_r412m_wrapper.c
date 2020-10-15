@@ -276,12 +276,12 @@ CellularError_t Cellular_GetPsmSettings( CellularHandle_t cellularHandle,
 
 /* Cellular HAL API. */
 /* coverity[misra_c_2012_rule_8_7_violation] */
-CellularError_t Cellular_SetPdnConfig( CellularHandle_t cellularHandle,
+/*CellularError_t Cellular_SetPdnConfig( CellularHandle_t cellularHandle,
                                        uint8_t contextId,
                                        const CellularPdnConfig_t * pPdnConfig )
 {
     return Cellular_CommonSetPdnConfig( cellularHandle, contextId, pPdnConfig );
-}
+}*/
 
 /*-----------------------------------------------------------*/
 
