@@ -58,7 +58,7 @@
 
 #define FREE_AT_RESPONSE_AND_SET_NULL( pResp )    { ( _Cellular_AtResponseFree( ( pResp ) ) ); ( ( pResp ) = NULL ); }
 
-#define PKTIO_COMMIF_RECV_TIMEOUT    ( 100UL )
+#define PKTIO_SHUTDOWN_WAIT_INTERVAL_MS    ( 10U )
 
 /*-----------------------------------------------------------*/
 
@@ -280,7 +280,7 @@ static CellularPktStatus_t _processIntermediateResponse( char * pLine,
 
 static CellularATCommandResponse_t * _Cellular_AtResponseNew( void )
 {
-    CellularATCommandResponse_t * pNew;
+    CellularATCommandResponse_t * pNew = NULL;
 
     pNew = ( CellularATCommandResponse_t * ) pvPortMalloc( sizeof( CellularATCommandResponse_t ) );
     /* coverity[misra_c_2012_rule_10_5_violation] */
@@ -301,7 +301,8 @@ static CellularATCommandResponse_t * _Cellular_AtResponseNew( void )
  */
 static void _Cellular_AtResponseFree( CellularATCommandResponse_t * pResp )
 {
-    CellularATCommandLine_t * pCurrLine;
+    CellularATCommandLine_t * pCurrLine = NULL;
+    CellularATCommandLine_t * pToFree = NULL;
 
     if( pResp != NULL )
     {
@@ -309,7 +310,6 @@ static void _Cellular_AtResponseFree( CellularATCommandResponse_t * pResp )
 
         while( pCurrLine != NULL )
         {
-            CellularATCommandLine_t * pToFree;
             pToFree = pCurrLine;
             pCurrLine = pCurrLine->pNext;
 
@@ -478,15 +478,14 @@ static _atRespType_t _getMsgType( const CellularContext_t * pContext,
 static void _Cellular_PktRxCallBack( void * pUserData,
                                      CellularCommInterfaceHandle_t commInterfaceHandle )
 {
-    ( void ) commInterfaceHandle;
+    const CellularContext_t * pContext = ( CellularContext_t * ) pUserData;
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE, xResult = pdPASS;
+
+    ( void ) commInterfaceHandle; /* Comm if is not used in this function. */
 
     /* The context of this function is a ISR. */
-    const CellularContext_t * pContext = ( CellularContext_t * ) pUserData;
-    BaseType_t xHigherPriorityTaskWoken, xResult;
-
     if( ( pContext != NULL ) && ( pContext->pPktioCommEvent != NULL ) )
     {
-        xHigherPriorityTaskWoken = pdFALSE;
         xResult = xEventGroupSetBitsFromISR( pContext->pPktioCommEvent,
                                              PKTIO_EVT_MASK_RX_DATA,
                                              &xHigherPriorityTaskWoken );
@@ -544,8 +543,8 @@ static char * _Cellular_ReadLine( CellularContext_t * pContext,
     /* pContext->pPktioReadPtr is valid data start pointer.
      * pContext->partialDataRcvdLen is the valid data length need to be handled.
      * if pContext->pPktioReadPtr is NULL, valid data start from pContext->pktioReadBuf.
-     * pAtResp equals NULL indicate that no data is buffered in AT command response.
-     * Data before pPktioReadPtr is invalid data can be recycled. */
+     * pAtResp equals NULL indicate that no data is buffered in AT command response and
+     * data before pPktioReadPtr is invalid data can be recycled. */
     if( ( pContext->pPktioReadPtr != NULL ) && ( pContext->pPktioReadPtr != pContext->pktioReadBuf ) &&
         ( pContext->partialDataRcvdLen != 0U ) && ( pAtResp == NULL ) )
     {
@@ -575,10 +574,11 @@ static char * _Cellular_ReadLine( CellularContext_t * pContext,
     {
         ( void ) pContext->pCommIntf->recv( pContext->hPktioCommIntf, ( uint8_t * ) pRead,
                                             bufferEmptyLength,
-                                            PKTIO_COMMIF_RECV_TIMEOUT, &bytesRead );
+                                            CELLULAR_COMM_IF_RECV_TIMEOUT_MS, &bytesRead );
 
         if( bytesRead > 0U )
         {
+            /* Add a NULL after the bytesRead. This is required for further processing. */
             pRead[ bytesRead ] = '\0';
 
             /* Set the pBytesRead only when actual bytes read from comm interface. */
@@ -595,7 +595,7 @@ static char * _Cellular_ReadLine( CellularContext_t * pContext,
     }
     else
     {
-        IotLogError( "No empty space for comm intf to read. Try handle data again." );
+        IotLogError( "No empty space for comm if to read. Try handle data again." );
         *pBytesRead = partialDataRead;
     }
 
@@ -1013,7 +1013,7 @@ static void _pktioReadThread( void * pUserData )
 {
     CellularContext_t * pContext = ( CellularContext_t * ) pUserData;
     CellularATCommandResponse_t * pAtResp = NULL;
-    EventBits_t uxBits;
+    EventBits_t uxBits = 0;
     uint32_t bytesRead = 0;
 
     /* Open main communication port. */
@@ -1083,7 +1083,7 @@ static void _pktioReadThread( void * pUserData )
 
 static void _PktioInitProcessReadThreadStatus( CellularContext_t * pContext )
 {
-    EventBits_t uxBits;
+    EventBits_t uxBits = 0;
 
     uxBits = xEventGroupWaitBits( ( pContext->pPktioCommEvent ),
                                   ( ( EventBits_t ) PKTIO_EVT_MASK_STARTED | ( EventBits_t ) PKTIO_EVT_MASK_ABORTED ),
@@ -1186,25 +1186,44 @@ CellularPktStatus_t _Cellular_PktioSendAtCmd( CellularContext_t * pContext,
     uint32_t sentLen = 0;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
 
-    if( pContext != NULL )
+    if( pContext == NULL )
     {
-        pContext->pRespPrefix = pAtRspPrefix;
-        pContext->PktioAtCmdType = atType;
-        cmdLen = strnlen( pAtCmd, PKTIO_WRITE_BUFFER_SIZE - 1U );
-        newCmdLen = cmdLen;
-        newCmdLen += 1U; /* Include space for \r. */
-
-        ( void ) strncpy( pContext->pktioSendBuf, pAtCmd, cmdLen );
-        pContext->pktioSendBuf[ cmdLen ] = '\r';
-
-        if( ( pContext->pCommIntf != NULL ) && ( pContext->hPktioCommIntf != NULL ) )
-        {
-            ( void ) pContext->pCommIntf->send( pContext->hPktioCommIntf, ( const uint8_t * ) &pContext->pktioSendBuf, newCmdLen, 1000UL, &sentLen );
-        }
+        IotLogError( "_Cellular_PktioSendAtCmd : invalid cellular context" );
+        pktStatus = CELLULAR_PKT_STATUS_INVALID_HANDLE;
+    }
+    else if( ( pContext->pCommIntf == NULL ) && ( pContext->hPktioCommIntf == NULL ) )
+    {
+        IotLogError( "_Cellular_PktioSendAtCmd : invalid comm interface handle" );
+        pktStatus = CELLULAR_PKT_STATUS_INVALID_HANDLE;
+    }
+    else if( pAtCmd == NULL )
+    {
+        IotLogError( "_Cellular_PktioSendAtCmd : invalid pAtCmd" );
+        pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
     }
     else
     {
-        pktStatus = CELLULAR_PKT_STATUS_INVALID_HANDLE;
+        cmdLen = strlen( pAtCmd );
+
+        if( cmdLen > PKTIO_WRITE_BUFFER_SIZE )
+        {
+            IotLogError( "_Cellular_PktioSendAtCmd : invalid pAtCmd" );
+            pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
+        }
+        else
+        {
+            pContext->pRespPrefix = pAtRspPrefix;
+            pContext->PktioAtCmdType = atType;
+            newCmdLen = cmdLen;
+            newCmdLen += 1U; /* Include space for \r. */
+
+            ( void ) strncpy( pContext->pktioSendBuf, pAtCmd, cmdLen );
+            pContext->pktioSendBuf[ cmdLen ] = '\r';
+
+            ( void ) pContext->pCommIntf->send( pContext->hPktioCommIntf,
+                                                ( const uint8_t * ) &pContext->pktioSendBuf, newCmdLen,
+                                                CELLULAR_COMM_IF_SEND_TIMEOUT_MS, &sentLen );
+        }
     }
 
     return pktStatus;
@@ -1218,30 +1237,26 @@ uint32_t _Cellular_PktioSendData( CellularContext_t * pContext,
                                   uint32_t dataLen )
 {
     uint32_t sentLen = 0;
-    uint32_t sendDataLength = 0U;
 
-    if( pContext != NULL )
+    if( pContext == NULL )
     {
-        if( dataLen < ( uint32_t ) PKTIO_WRITE_BUFFER_SIZE )
-        {
-            sendDataLength = dataLen;
-        }
-        else
-        {
-            sendDataLength = ( uint32_t ) ( ( uint32_t ) PKTIO_WRITE_BUFFER_SIZE - 1U );
-        }
-
-        ( void ) memcpy( ( void * ) pContext->pktioSendBuf, ( const void * ) pData, sendDataLength );
-
-        if( ( pContext->pCommIntf != NULL ) && ( pContext->hPktioCommIntf != NULL ) )
-        {
-            ( void ) pContext->pCommIntf->send( pContext->hPktioCommIntf, ( const uint8_t * ) &pContext->pktioSendBuf,
-                                                sendDataLength, 1000UL, &sentLen );
-        }
-
-        IotLogDebug( "PktioSendData sent %d bytes", sentLen );
+        IotLogError( "_Cellular_PktioSendData : invalid cellular context" );
+    }
+    else if( ( pContext->pCommIntf == NULL ) && ( pContext->hPktioCommIntf == NULL ) )
+    {
+        IotLogError( "_Cellular_PktioSendData : invalid comm interface handle" );
+    }
+    else if( pData == NULL )
+    {
+        IotLogError( "_Cellular_PktioSendData : invalid pData" );
+    }
+    else
+    {
+        ( void ) pContext->pCommIntf->send( pContext->hPktioCommIntf, pData,
+                                            dataLen, CELLULAR_COMM_IF_SEND_TIMEOUT_MS, &sentLen );
     }
 
+    IotLogDebug( "PktioSendData sent %d bytes", sentLen );
     return sentLen;
 }
 
@@ -1249,7 +1264,7 @@ uint32_t _Cellular_PktioSendData( CellularContext_t * pContext,
 
 void _Cellular_PktioShutdown( CellularContext_t * pContext )
 {
-    EventBits_t uxBits;
+    EventBits_t uxBits = 0;
 
     if( ( pContext != NULL ) && ( pContext->bPktioUp ) )
     {
@@ -1260,7 +1275,7 @@ void _Cellular_PktioShutdown( CellularContext_t * pContext )
 
             while( ( uxBits & ( EventBits_t ) PKTIO_EVT_MASK_ABORTED ) != ( ( EventBits_t ) PKTIO_EVT_MASK_ABORTED ) )
             {
-                vTaskDelay( pdMS_TO_TICKS( 10 ) );
+                vTaskDelay( pdMS_TO_TICKS( PKTIO_SHUTDOWN_WAIT_INTERVAL_MS ) );
                 uxBits = xEventGroupGetBits( pContext->pPktioCommEvent );
             }
 

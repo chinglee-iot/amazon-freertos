@@ -43,11 +43,6 @@
 
 /*-----------------------------------------------------------*/
 
-#define PKTIO_READ_BUFFER_SIZE     ( 1600U )      /* This should be larger than TCP packet size. */
-#define PKTIO_WRITE_BUFFER_SIZE    ( 1600U )      /* This should be larger than TCP packet size. */
-
-/*-----------------------------------------------------------*/
-
 /**
  * @brief The AT command request structure.
  */

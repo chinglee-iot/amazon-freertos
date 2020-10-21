@@ -229,26 +229,6 @@ CellularError_t Cellular_GetModemInfo( CellularHandle_t cellularHandle,
 
 /* Cellular HAL API. */
 /* coverity[misra_c_2012_rule_8_7_violation] */
-CellularError_t Cellular_GetEidrxSettings( CellularHandle_t cellularHandle,
-                                           CellularEidrxSettingsList_t * pEidrxSettingsList )
-{
-    return Cellular_CommonGetEidrxSettings( cellularHandle, pEidrxSettingsList );
-}
-
-/*-----------------------------------------------------------*/
-
-/* Cellular HAL API. */
-/* coverity[misra_c_2012_rule_8_7_violation] */
-CellularError_t Cellular_SetEidrxSettings( CellularHandle_t cellularHandle,
-                                           const CellularEidrxSettings_t * pEidrxSettings )
-{
-    return Cellular_CommonSetEidrxSettings( cellularHandle, pEidrxSettings );
-}
-
-/*-----------------------------------------------------------*/
-
-/* Cellular HAL API. */
-/* coverity[misra_c_2012_rule_8_7_violation] */
 CellularError_t Cellular_GetRegisteredNetwork( CellularHandle_t cellularHandle,
                                                CellularPlmnInfo_t * pNetworkInfo )
 {
@@ -273,6 +253,27 @@ CellularError_t Cellular_GetServiceStatus( CellularHandle_t cellularHandle,
                                            CellularServiceStatus_t * pServiceStatus )
 {
     return Cellular_CommonGetServiceStatus( cellularHandle, pServiceStatus );
+}
+
+/*-----------------------------------------------------------*/
+
+/* Cellular HAL API. */
+/* coverity[misra_c_2012_rule_8_7_violation] */
+CellularError_t Cellular_GetSimCardInfo( CellularHandle_t cellularHandle,
+                                         CellularSimCardInfo_t * pSimCardInfo )
+{
+    return Cellular_CommonGetSimCardInfo( cellularHandle, pSimCardInfo );
+}
+
+/*-----------------------------------------------------------*/
+
+
+/* Cellular HAL API. */
+/* coverity[misra_c_2012_rule_8_7_violation] */
+CellularError_t Cellular_GetPsmSettings( CellularHandle_t cellularHandle,
+                                         CellularPsmSettings_t * pPsmSettings )
+{
+    return Cellular_CommonGetPsmSettings( cellularHandle, pPsmSettings );
 }
 
 /*-----------------------------------------------------------*/

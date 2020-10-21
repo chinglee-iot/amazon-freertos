@@ -234,7 +234,7 @@ static BaseType_t prvNetworkSend( void * ctx,
     {
         tcpSocket = pCellularSocketContext->cellularSocketHandle;
 
-        /* convert ticks to ms delay. */
+        /* Convert ticks to ms delay. */
         if( ( pCellularSocketContext->sendTimeout >= UINT32_MAX_MS_TICKS ) || ( pCellularSocketContext->sendTimeout >= portMAX_DELAY ) )
         {
             /* Check if the ticks cause overflow. */
@@ -893,10 +893,10 @@ static int32_t prvSocketsAton( char * cp,
 
     for( ; i < ( uint32_t ) 4; i++ )
     {
-        /* get next tok. */
+        /* Get next tok. */
         retGetToken = prvGetNextTok( &pLocatCp, '.', &pToken );
 
-        /* convert the pToken to int. */
+        /* Convert the pToken to int. */
         if( retGetToken == true )
         {
             if( prvConvertStrToNumber( pToken, &tempValue ) == false )
@@ -1663,7 +1663,7 @@ int32_t SOCKETS_SetSockOpt( Socket_t xSocket,
 
             if( socketStatus == CELLULAR_SUCCESS )
             {
-                /* convert the IP string to uIPAddress. */
+                /* Convert the IP string to uIPAddress. */
                 if( prvSocketsAton( pIpAddress, &ulIPAddress ) == 0 )
                 {
                     ulIPAddress = 0;
