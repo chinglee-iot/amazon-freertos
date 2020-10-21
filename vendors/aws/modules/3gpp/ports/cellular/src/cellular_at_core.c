@@ -115,6 +115,8 @@ CellularATError_t Cellular_ATIsPrefixPresent( const char * pString,
 {
     CellularATError_t atStatus = CELLULAR_AT_SUCCESS;
     CellularATStringValidationResult_t stringValidationResult = CELLULAR_AT_STRING_UNKNOWN;
+    char *ptrPrefixChar = NULL;
+    char *ptrChar = NULL;
 
     if( result == NULL )
     {
@@ -139,9 +141,22 @@ CellularATError_t Cellular_ATIsPrefixPresent( const char * pString,
     {
         *result = true;
 
-        if( strchr( pString, ( int32_t ) ':' ) == NULL )
+        ptrPrefixChar = strchr( pString, ( int32_t ) ':' );
+        if( ptrPrefixChar == NULL )
         {
             *result = false;
+        }
+        else
+        {
+            /* There should be only '+', characters or digit before seperator. */
+            for( ptrChar = ( char * ) pString; ptrChar < ptrPrefixChar; ptrChar++ )
+            {
+                if( ( isalpha( *ptrChar ) == 0 ) && ( isdigit( *ptrChar ) == 0 ) && ( *ptrChar != '+' ) )
+                {
+                    *result = false;
+                    break;
+                }
+            }
         }
     }
 
