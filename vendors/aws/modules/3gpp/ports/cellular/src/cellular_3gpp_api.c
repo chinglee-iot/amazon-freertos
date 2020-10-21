@@ -1413,6 +1413,7 @@ static CellularError_t atcmdQueryRegStatus( CellularContext_t * pContext,
 {
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     const cellularAtData_t * pLibAtData = NULL;
+    CellularNetworkRegistrationStatus_t psRegStatus = CELLULAR_NETWORK_REGISTRATION_STATUS_UNKNOWN;
 
     if( pContext == NULL )
     {
@@ -1422,7 +1423,21 @@ static CellularError_t atcmdQueryRegStatus( CellularContext_t * pContext,
     {
         cellularStatus = queryNetworkStatus( pContext, "AT+CREG?", "+CREG", CELLULAR_REG_TYPE_CREG );
 
+        /* added below +CGREG support as some modems e.g. SARA-R412 also support GSM/EDGE network */
         if( cellularStatus == CELLULAR_SUCCESS )
+        {
+            cellularStatus = queryNetworkStatus( pContext, "AT+CGREG?", "+CGREG", CELLULAR_REG_TYPE_CGREG );
+        }
+
+        /* Check if modem acquired GPRS Registration. */
+        /* Query CEREG only if the modem did not already acquire PS registration. */
+        _Cellular_LockAtDataMutex( pContext );
+        psRegStatus = pContext->libAtData.psRegStatus;
+        _Cellular_UnlockAtDataMutex( pContext );
+
+        if( ( cellularStatus == CELLULAR_SUCCESS ) &&
+            ( psRegStatus != CELLULAR_NETWORK_REGISTRATION_STATUS_REGISTERED_HOME ) &&
+            ( psRegStatus != CELLULAR_NETWORK_REGISTRATION_STATUS_REGISTERED_ROAMING ) )
         {
             cellularStatus = queryNetworkStatus( pContext, "AT+CEREG?", "+CEREG", CELLULAR_REG_TYPE_CEREG );
         }

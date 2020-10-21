@@ -62,4 +62,60 @@ uint32_t _Cellular_GetSocketId( CellularContext_t * pContext,
 
 /*-----------------------------------------------------------*/
 
+/**
+ * @brief Cellular MNO profiles.
+ */
+typedef enum MNOProfileType
+{
+    MNO_PROFILE_SW_DEFAULT = 0,
+    MNO_PROFILE_SIM_ICCID_IMSI_SELECT,
+    MNO_PROFILE_ATT,
+    MNO_PROFILE_VERIZON,
+    MNO_PROFILE_TELSTRA,
+    MNO_PROFILE_TMOBILE,
+    MNO_PROFILE_CHINA_TELECOM,
+    MNO_PROFILE_SPRINT = 8,
+    MNO_PROFILE_VODAFONE = 19,
+    MNO_PROFILE_GLOBAL = 90,
+    MNO_PROFILE_STANDARD_EUROPE = 100,
+    MNO_PROFILE_NOT_SET = 999
+} MNOProfileType_t;
+
+/*-----------------------------------------------------------*/
+
+/* Select network MNO profile. Default value is MNO_PROFILE_SW_DEFAULT */
+#define CELLULAR_CONFIG_SET_MNO_PROFILE     ( MNO_PROFILE_ATT )
+
+/*-----------------------------------------------------------*/
+
+/* MAX valid PDP contexts */
+#define MAX_PDP_CONTEXTS                            ( 4U )
+
+#define CELULAR_PDN_CONTEXT_TYPE_MAX_SIZE           ( 7U ) /* The length of IP type e.g. IPV4V6. */
+
+/*-----------------------------------------------------------*/
+
+/* +CGDCONT PDN context definition tokens */
+#define CELLULAR_PDN_STATUS_POS_CONTEXT_ID       ( 0U )
+#define CELLULAR_PDN_STATUS_POS_CONTEXT_TYPE     ( 1U )
+#define CELLULAR_PDN_STATUS_POS_APN_NAME         ( 2U )
+#define CELLULAR_PDN_STATUS_POS_IP_ADDRESS       ( 3U )
+
+/**
+ * @brief Context info from +CGDCONT (Context IP type, APN name, IP Address)
+ */
+typedef struct CellularPdnContextInfo
+{
+    BOOL contextsPresent[MAX_PDP_CONTEXTS];                           /**< Context present in +CGDCONT response or not. */
+    char ipType[MAX_PDP_CONTEXTS][CELULAR_PDN_CONTEXT_TYPE_MAX_SIZE]; /**< PDN Context type. */
+    char apnName[MAX_PDP_CONTEXTS][CELLULAR_APN_MAX_SIZE];            /**< APN name. */
+    char ipAddress[MAX_PDP_CONTEXTS][CELLULAR_IP_ADDRESS_MAX_SIZE];   /**< IP address. */
+} CellularPdnContextInfo_t;
+
+/*-----------------------------------------------------------*/
+
+
+/*-----------------------------------------------------------*/
+
+
 #endif /* ifndef __CELLULAR_R412M_H__ */
