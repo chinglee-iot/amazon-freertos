@@ -36,6 +36,11 @@
 
 /*-----------------------------------------------------------*/
 
+#define PKTIO_READ_BUFFER_SIZE     ( 1600U )      /* This should be larger than TCP packet size. */
+#define PKTIO_WRITE_BUFFER_SIZE    ( CELLULAR_AT_CMD_MAX_SIZE )
+
+/*-----------------------------------------------------------*/
+
 /**
  * @brief Cellular network register URC type.
  */
@@ -54,10 +59,15 @@ typedef enum CellularNetworkRegType
 typedef struct _callbackEvents
 {
     CellularUrcNetworkRegistrationCallback_t networkRegistrationCallback;
+    void * pNetworkRegistrationCallbackContext;
     CellularUrcPdnEventCallback_t pdnEventCallback;
+    void * pPdnEventCallbackContext;
     CellularUrcSignalStrengthChangedCallback_t signalStrengthChangedCallback;
+    void * pSignalStrengthChangedCallbackContext;
     CellularUrcGenericCallback_t genericCallback;
+    void * pGenericCallbackContext;
     CellularModemEventCallback_t modemEventCallback;
+    void * pModemEventCallbackContext;
 } _callbackEvents_t;
 
 /**

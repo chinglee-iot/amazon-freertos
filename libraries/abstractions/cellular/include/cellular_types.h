@@ -98,7 +98,7 @@ typedef enum CellularSimCardState
 } CellularSimCardState_t;
 
 /**
- * @brief SIM card lock state codes.
+ * @brief SIM card lock state codes. Reference 3GPP TS 27.007 Enter PIN +CPIN.
  */
 typedef enum CellularSimCardLockState
 {
@@ -135,19 +135,19 @@ typedef enum CellularNetworkRegistrationMode
 } CellularNetworkRegistrationMode_t;
 
 /**
- * @brief Represents network registration status.
+ * @brief Represents network registration status. Reference 3GPP TS 27.007 network registration status.
  */
 typedef enum CellularNetworkRegistrationStatus
 {
-    CELLULAR_NETWORK_REGISTRATION_STATUS_NOT_REGISTERED_NOT_SEARCHING,
-    CELLULAR_NETWORK_REGISTRATION_STATUS_REGISTERED_HOME,
-    CELLULAR_NETWORK_REGISTRATION_STATUS_NOT_REGISTERED_SEARCHING,
-    CELLULAR_NETWORK_REGISTRATION_STATUS_REGISTRATION_DENIED,
-    CELLULAR_NETWORK_REGISTRATION_STATUS_REGISTERED_ROAMING,
-    CELLULAR_NETWORK_REGISTRATION_STATUS_REGISTERED_HOME_SMS_ONLY,
-    CELLULAR_NETWORK_REGISTRATION_STATUS_REGISTERED_ROAMING_SMS_ONLY,
-    CELLULAR_NETWORK_REGISTRATION_STATUS_ATTACHED_EMERG_SERVICES_ONLY,
-    CELLULAR_NETWORK_REGISTRATION_STATUS_UNKNOWN,
+    CELLULAR_NETWORK_REGISTRATION_STATUS_NOT_REGISTERED_NOT_SEARCHING = 0,
+    CELLULAR_NETWORK_REGISTRATION_STATUS_REGISTERED_HOME = 1,
+    CELLULAR_NETWORK_REGISTRATION_STATUS_NOT_REGISTERED_SEARCHING = 2,
+    CELLULAR_NETWORK_REGISTRATION_STATUS_REGISTRATION_DENIED = 3,
+    CELLULAR_NETWORK_REGISTRATION_STATUS_UNKNOWN = 4,
+    CELLULAR_NETWORK_REGISTRATION_STATUS_REGISTERED_ROAMING = 5,
+    CELLULAR_NETWORK_REGISTRATION_STATUS_REGISTERED_HOME_SMS_ONLY = 6,
+    CELLULAR_NETWORK_REGISTRATION_STATUS_REGISTERED_ROAMING_SMS_ONLY = 7,
+    CELLULAR_NETWORK_REGISTRATION_STATUS_ATTACHED_EMERG_SERVICES_ONLY = 8,
     CELLULAR_NETWORK_REGISTRATION_STATUS_MAX,
 } CellularNetworkRegistrationStatus_t;
 
@@ -656,41 +656,56 @@ typedef CellularPktStatus_t ( * CellularATCommandResponseReceivedCallback_t ) ( 
  *
  * @param[in] urcEvent URC Event that happened.
  * @param[in] pServiceStatus The status of the network service.
+ * @param[in] pCallbackContext pCallbackContext parameter in
+ * Cellular_RegisterUrcNetworkRegistrationEventCallback function.
  */
 typedef void ( * CellularUrcNetworkRegistrationCallback_t )( CellularUrcEvent_t urcEvent,
-                                                             const CellularServiceStatus_t * pServiceStatus );
+                                                             const CellularServiceStatus_t * pServiceStatus,
+                                                             void * pCallbackContext );
 
 /**
  * @brief Callback used to inform about PDN URC events.
  *
  * @param[in] urcEvent URC Event that happened.
  * @param[in] contextId Context ID of the PDN context
+ * @param[in] pCallbackContext pCallbackContext parameter in
+ * Cellular_RegisterUrcPdnEventCallback function.
  */
 typedef void ( * CellularUrcPdnEventCallback_t )( CellularUrcEvent_t urcEvent,
-                                                  uint8_t contextId );
+                                                  uint8_t contextId,
+                                                  void * pCallbackContext );
 
 /**
  * @brief Callback used to inform about signal strength changed URC event.
  *
  * @param[in] urcEvent URC Event that happened.
  * @param[in] pSignalInfo The new signal information.
+ * @param[in] pCallbackContext pCallbackContext parameter in
+ * Cellular_RegisterUrcSignalStrengthChangedCallback function.
  */
 typedef void ( * CellularUrcSignalStrengthChangedCallback_t )( CellularUrcEvent_t urcEvent,
-                                                               const CellularSignalInfo_t * pSignalInfo );
+                                                               const CellularSignalInfo_t * pSignalInfo,
+                                                               void * pCallbackContext );
 
 /**
  * @brief Generic callback used to inform all other URC events.
  *
  * @param[in] pRawData Raw data received in the URC event.
+ * @param[in] pCallbackContext pCallbackContext parameter in
+ * Cellular_RegisterUrcGenericCallback function.
  */
-typedef void ( * CellularUrcGenericCallback_t )( const char * pRawData );
+typedef void ( * CellularUrcGenericCallback_t )( const char * pRawData,
+                                                 void * pCallbackContext );
 
 /**
  * @brief Callback used to inform about modem events.
  *
  * @param[in] modemEvent The modem event.
+ * @param[in] pCallbackContext pCallbackContext parameter in
+ * Cellular_RegisterModemEventCallback function.
  */
-typedef void ( * CellularModemEventCallback_t )( CellularModemEvent_t modemEvent );
+typedef void ( * CellularModemEventCallback_t )( CellularModemEvent_t modemEvent,
+                                                 void * pCallbackContext );
 
 /**
  * @brief Callback used to inform about the status of socket open.

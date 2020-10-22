@@ -881,7 +881,8 @@ void _Cellular_NetworkRegistrationCallback( const CellularContext_t * pContext,
 {
     if( ( pContext != NULL ) && ( pContext->cbEvents.networkRegistrationCallback != NULL ) )
     {
-        pContext->cbEvents.networkRegistrationCallback( urcEvent, pServiceStatus );
+        pContext->cbEvents.networkRegistrationCallback( urcEvent, pServiceStatus,
+                                                        pContext->cbEvents.pNetworkRegistrationCallbackContext );
     }
 }
 
@@ -895,7 +896,7 @@ void _Cellular_PdnEventCallback( const CellularContext_t * pContext,
 {
     if( ( pContext != NULL ) && ( pContext->cbEvents.pdnEventCallback != NULL ) )
     {
-        pContext->cbEvents.pdnEventCallback( urcEvent, contextId );
+        pContext->cbEvents.pdnEventCallback( urcEvent, contextId, pContext->cbEvents.pPdnEventCallbackContext );
     }
 }
 
@@ -909,7 +910,8 @@ void _Cellular_SignalStrengthChangedCallback( const CellularContext_t * pContext
 {
     if( ( pContext != NULL ) && ( pContext->cbEvents.signalStrengthChangedCallback != NULL ) )
     {
-        pContext->cbEvents.signalStrengthChangedCallback( urcEvent, pSignalInfo );
+        pContext->cbEvents.signalStrengthChangedCallback( urcEvent, pSignalInfo,
+                                                          pContext->cbEvents.pSignalStrengthChangedCallbackContext );
     }
 }
 
@@ -922,7 +924,7 @@ void _Cellular_GenericCallback( const CellularContext_t * pContext,
 {
     if( ( pContext != NULL ) && ( pContext->cbEvents.genericCallback != NULL ) )
     {
-        pContext->cbEvents.genericCallback( pRawData );
+        pContext->cbEvents.genericCallback( pRawData, pContext->cbEvents.pGenericCallbackContext );
     }
 }
 
@@ -935,7 +937,7 @@ void _Cellular_ModemEventCallback( const CellularContext_t * pContext,
 {
     if( ( pContext != NULL ) && ( pContext->cbEvents.modemEventCallback != NULL ) )
     {
-        pContext->cbEvents.modemEventCallback( modemEvent );
+        pContext->cbEvents.modemEventCallback( modemEvent, pContext->cbEvents.pModemEventCallbackContext );
     }
 }
 

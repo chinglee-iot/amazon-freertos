@@ -255,7 +255,7 @@ static CellularPktStatus_t _parseRatInfoInRegStatus( const char * pToken,
             atCoreStatus = CELLULAR_AT_ERROR;
             IotLogError( "Error in processing RAT. Token %s", pToken );
         }
-        else if( ( var == ( int32_t ) CELLULAR_RAT_GSM ) || (var == (int32_t)CELLULAR_RAT_EDGE) || 
+        else if( ( var == ( int32_t ) CELLULAR_RAT_GSM ) || ( var == ( int32_t ) CELLULAR_RAT_EDGE ) ||
                  ( var == ( int32_t ) CELLULAR_RAT_CATM1 ) || ( var == ( int32_t ) CELLULAR_RAT_NBIOT ) )
         {
             /* Variable "var" is ensured that it is valid and within
@@ -481,11 +481,11 @@ static void _regStatusGenerateEvent( const CellularContext_t * pContext,
     {
         if( regType == CELLULAR_REG_TYPE_CREG )
         {
-            pContext->cbEvents.networkRegistrationCallback( CELLULAR_URC_EVENT_NETWORK_CS_REGISTRATION, pServiceStatus );
+            _Cellular_NetworkRegistrationCallback( pContext, CELLULAR_URC_EVENT_NETWORK_CS_REGISTRATION, pServiceStatus );
         }
         else if( ( regType == CELLULAR_REG_TYPE_CGREG ) || ( regType == CELLULAR_REG_TYPE_CEREG ) )
         {
-            pContext->cbEvents.networkRegistrationCallback( CELLULAR_URC_EVENT_NETWORK_PS_REGISTRATION, pServiceStatus );
+            _Cellular_NetworkRegistrationCallback( pContext, CELLULAR_URC_EVENT_NETWORK_PS_REGISTRATION, pServiceStatus );
         }
         else
         {
