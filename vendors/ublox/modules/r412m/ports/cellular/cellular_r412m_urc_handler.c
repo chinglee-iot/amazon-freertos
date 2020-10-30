@@ -42,12 +42,32 @@
 
 /*-----------------------------------------------------------*/
 
+/* +UUPSMR URC */
+#define PSM_MODE_EXIT                   ( 0U )
+#define PSM_MODE_ENTER                  ( 1U )
+#define PSM_MODE_PREVENT_ENTRY          ( 2U )
+#define PSM_MODE_PREVENT_DEEP_ENTRY     ( 3U )
+
+/* +CIEV URC */
+#define CIEV_POS_MIN                    ( 1U )
+#define CIEV_POS_SIGNAL                 ( 2U )
+#define CIEV_POS_SERVICE                ( 3U )
+#define CIEV_POS_MAX                    ( 12U )
+
+/*-----------------------------------------------------------*/
+
 static void _cellular_UrcProcessUusoco( CellularContext_t * pContext,
                                         char * pInputLine );
 static void _cellular_UrcProcessUusord( CellularContext_t * pContext,
                                         char * pInputLine );
 static void _cellular_UrcProcessUusocl( CellularContext_t * pContext,
                                         char * pInputLine );
+
+static void _cellular_UrcProcessUupsmr( CellularContext_t* pContext,
+                                        char* pInputLine );
+static CellularPktStatus_t _cellular_UrcProcessCiev( const CellularContext_t* pContext,
+                                                    char* pInputLine );
+
 
 /*-----------------------------------------------------------*/
 
@@ -58,7 +78,9 @@ CellularAtParseTokenMap_t CellularUrcHandlerTable[] =
 {
     { "CEREG",  Cellular_CommonUrcProcessCereg },
     { "CGREG",  Cellular_CommonUrcProcessCgreg  },
+    { "CIEV",   _cellular_UrcProcessCiev     },                 /* Signal strength status change indication URC. */
     { "CREG",   Cellular_CommonUrcProcessCreg  },
+    { "UUPSMR", _cellular_UrcProcessUupsmr     },               /* Power saving mode indication URC. */
     { "UUSOCL", _cellular_UrcProcessUusocl     },               /* Socket close URC. */
     { "UUSOCO", _cellular_UrcProcessUusoco     },               /* Socket connect URC. */
     { "UUSORD", _cellular_UrcProcessUusord     }                /* Socket receive URC. */
@@ -67,6 +89,204 @@ CellularAtParseTokenMap_t CellularUrcHandlerTable[] =
 /* Cellular HAL common porting interface. */
 /* coverity[misra_c_2012_rule_8_7_violation] */
 uint32_t CellularUrcHandlerTableSize = sizeof( CellularUrcHandlerTable ) / sizeof( CellularAtParseTokenMap_t );
+
+/*-----------------------------------------------------------*/
+
+/* Parse signal level from +CIEV URC indication. */
+
+static CellularPktStatus_t _parseUrcIndicationCsq( const CellularContext_t* pContext,
+                                                   char* pUrcStr )
+{
+    char* pToken = NULL;
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    int32_t retStrtoi = 0;
+    int16_t csqBarLevel = CELLULAR_INVALID_SIGNAL_BAR_VALUE;
+    CellularSignalInfo_t signalInfo = { 0 };
+
+    if ((pContext == NULL) || (pUrcStr == NULL))
+    {
+        atCoreStatus = CELLULAR_AT_BAD_PARAMETER;
+    }
+
+    if (atCoreStatus == CELLULAR_AT_SUCCESS)
+    {
+        atCoreStatus = Cellular_ATStrtoi(pUrcStr, 10, &retStrtoi);
+    }
+
+    if (atCoreStatus == CELLULAR_AT_SUCCESS)
+    {
+        if ((retStrtoi >= INT16_MIN) && (retStrtoi <= (int32_t)INT16_MAX))
+        {
+            csqBarLevel = retStrtoi;
+        }
+        else
+        {
+            atCoreStatus = CELLULAR_AT_ERROR;
+        }
+    }
+
+    /* Handle the callback function. */
+    if (atCoreStatus == CELLULAR_AT_SUCCESS)
+    {
+        IotLogDebug("_parseUrcIndicationCsq: SIGNAL Strength Bar level [%d]", csqBarLevel);
+        signalInfo.rssi = CELLULAR_INVALID_SIGNAL_VALUE;
+        signalInfo.rsrp = CELLULAR_INVALID_SIGNAL_VALUE;
+        signalInfo.rsrq = CELLULAR_INVALID_SIGNAL_VALUE;
+        signalInfo.ber = CELLULAR_INVALID_SIGNAL_VALUE;
+        signalInfo.bars = csqBarLevel;
+        _Cellular_SignalStrengthChangedCallback(pContext, CELLULAR_URC_EVENT_SIGNAL_CHANGED, &signalInfo);
+    }
+
+    if (atCoreStatus != CELLULAR_AT_SUCCESS)
+    {
+        pktStatus = _Cellular_TranslateAtCoreStatus(atCoreStatus);
+    }
+
+    return pktStatus;
+}
+
+/*-----------------------------------------------------------*/
+
+static CellularPktStatus_t _cellular_UrcProcessCiev(const CellularContext_t* pContext,
+                                                    char* pInputLine)
+{
+    char* pUrcStr = NULL, * pToken = NULL;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+    int32_t tempValue = 0;
+    uint8_t indicatorDescr = 0;
+
+    /* Check context status. */
+    if (pContext == NULL)
+    {
+        pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+    }
+    else if (pInputLine == NULL)
+    {
+        pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
+    }
+    else
+    {
+        pUrcStr = pInputLine;
+        atCoreStatus = Cellular_ATRemoveAllDoubleQuote(pUrcStr);
+
+        if (atCoreStatus == CELLULAR_AT_SUCCESS)
+        {
+            atCoreStatus = Cellular_ATRemoveLeadingWhiteSpaces(&pUrcStr);
+        }
+
+        /* Extract indicator <descr> */
+        if (atCoreStatus == CELLULAR_AT_SUCCESS)
+        {
+            atCoreStatus = Cellular_ATGetNextTok(&pUrcStr, &pToken);
+        }
+
+        if (atCoreStatus == CELLULAR_AT_SUCCESS)
+        {
+            atCoreStatus = Cellular_ATStrtoi(pToken, 10, &tempValue);
+            
+            if (atCoreStatus == CELLULAR_AT_SUCCESS)
+            {
+                if ((tempValue >= CIEV_POS_MIN) && (tempValue <= CIEV_POS_MAX))
+                {
+                    indicatorDescr = (uint8_t)tempValue;
+                    switch (indicatorDescr)
+                    {
+                    case CIEV_POS_SIGNAL:
+                        IotLogDebug("_cellular_UrcProcessCiev: CIEV_POS_SIGNAL");
+                        /* This URC only gives bar level and not the exact RSSI value. */
+                        /*
+                            o 0: < -105 dBm
+                            o 1 : < -93 dBm
+                            o 2 : < -81 dBm
+                            o 3 : < -69 dBm
+                            o 4 : < -57 dBm
+                            o 5 : >= -57 dBm
+                        */
+                        /* Parse the signal Bar level from string. */
+                        pktStatus = _parseUrcIndicationCsq((const CellularContext_t*)pContext, pUrcStr);
+                        break;
+                    default:
+                        break;
+                    }
+                }
+                else
+                {
+                    IotLogError("_cellular_UrcProcessCiev: parsing <descr> failed");
+                    atCoreStatus = CELLULAR_AT_ERROR;
+                }
+            }
+        }
+
+        if (atCoreStatus != CELLULAR_AT_SUCCESS)
+        {
+            pktStatus = _Cellular_TranslateAtCoreStatus(atCoreStatus);
+        }
+    }
+
+    if (pktStatus != CELLULAR_PKT_STATUS_OK)
+    {
+        IotLogDebug("_cellular_UrcProcessCiev: Parse failure");
+    }
+
+    return pktStatus;
+}
+
+/*-----------------------------------------------------------*/
+
+static void _cellular_UrcProcessUupsmr( CellularContext_t* pContext,
+                                        char* pInputLine )
+{
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+    char* pLocalInputLine = pInputLine;
+    char* pToken = NULL;
+    uint8_t psmState = 0;
+    int32_t tempValue = 0;
+
+    if ((pContext != NULL) && (pInputLine != NULL))
+    {
+        /* The inputline is in this format +UUPSMR: <state>[,<param1>] */
+        atCoreStatus = Cellular_ATGetNextTok(&pLocalInputLine, &pToken);
+
+        if (atCoreStatus == CELLULAR_AT_SUCCESS)
+        {
+            atCoreStatus = Cellular_ATStrtoi(pToken, 10, &tempValue);
+
+            if (atCoreStatus == CELLULAR_AT_SUCCESS)
+            {
+                if ((tempValue >= PSM_MODE_EXIT) && (tempValue <= PSM_MODE_PREVENT_DEEP_ENTRY))
+                {
+                    psmState = (uint8_t)tempValue;
+                    switch (psmState)
+                    {
+                    case PSM_MODE_EXIT:
+                        IotLogInfo("_cellular_UrcProcessUupsmr: PSM_MODE_EXIT");
+                        break;
+                    case PSM_MODE_ENTER:
+                        IotLogInfo("_cellular_UrcProcessUupsmr: PSM_MODE_ENTER event received");
+                        /* Call the callback function. Indicate the upper layer about the PSM state change. */
+                        _Cellular_ModemEventCallback(pContext, CELLULAR_MODEM_EVENT_PSM_ENTER);
+                        break;
+                    case PSM_MODE_PREVENT_ENTRY:
+                        IotLogInfo("_cellular_UrcProcessUupsmr: PSM_MODE_PREVENT_ENTRY");
+                        break;
+                    case PSM_MODE_PREVENT_DEEP_ENTRY:
+                        IotLogInfo("_cellular_UrcProcessUupsmr: PSM_MODE_PREVENT_DEEP_ENTRY");
+                        break;
+                    }
+                }
+                else
+                {
+                    IotLogError("_cellular_UrcProcessUupsmr: parsing <state> failed");
+                    atCoreStatus = CELLULAR_AT_ERROR;
+                }
+            }
+        }
+    }
+}
 
 /*-----------------------------------------------------------*/
 

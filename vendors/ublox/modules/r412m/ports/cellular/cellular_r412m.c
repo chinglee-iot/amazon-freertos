@@ -37,6 +37,8 @@
 
 #define ENBABLE_MODULE_UE_RETRY_COUNT      ( 3U )
 #define ENBABLE_MODULE_UE_RETRY_TIMEOUT    ( 5000U )
+#define ENBABLE_MODULE_UE_REBOOT_POLL_TIME ( 2000U )
+#define ENBABLE_MODULE_UE_REBOOT_MAX_TIME  ( 25000U )
 
 /*-----------------------------------------------------------*/
 
@@ -250,6 +252,63 @@ static CellularError_t _Cellular_GetCurrentMNOProfile(CellularContext_t* pContex
 
 /*-----------------------------------------------------------*/
 
+/* Reboot modem and wait for ready state. */
+
+CellularError_t rebootCellularModem( CellularContext_t* pContext, bool disablePsm )
+{
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    int count = 0;
+
+    CellularAtReq_t atReqGetNoResult =
+    {
+        "AT+CFUN=15",
+        CELLULAR_AT_NO_RESULT,
+        NULL,
+        NULL,
+        NULL,
+        0
+    };
+
+    IotLogInfo("rebootCellularModem: Rebooting Modem.");
+    cellularStatus = sendAtCommandWithRetryTimeout(pContext, &atReqGetNoResult);
+    vTaskDelay(pdMS_TO_TICKS(ENBABLE_MODULE_UE_REBOOT_POLL_TIME));
+    count = count + ENBABLE_MODULE_UE_REBOOT_POLL_TIME;
+
+    /* wait for modem after reboot*/
+    while ( count < ENBABLE_MODULE_UE_REBOOT_MAX_TIME )
+    {
+        IotLogInfo("rebootCellularModem: ...");
+
+        atReqGetNoResult.pAtCmd = "ATE0";
+        
+        pktStatus = _Cellular_TimeoutAtcmdRequestWithCallback(pContext, atReqGetNoResult, ENBABLE_MODULE_UE_REBOOT_POLL_TIME);
+        cellularStatus = _Cellular_TranslatePktStatus(pktStatus);
+
+        if (cellularStatus == CELLULAR_SUCCESS)
+        {
+            IotLogInfo("rebootCellularModem: Modem is now available.");
+
+            /* Query current PSM settings. */
+            atReqGetNoResult.pAtCmd = "AT+CPSMS?";
+            cellularStatus = sendAtCommandWithRetryTimeout(pContext, &atReqGetNoResult);
+
+            if (disablePsm && (cellularStatus == CELLULAR_SUCCESS))
+            {
+                IotLogInfo("rebootCellularModem: Disable +CPSMS setting.");
+                atReqGetNoResult.pAtCmd = "AT+CPSMS=0";
+                cellularStatus = sendAtCommandWithRetryTimeout(pContext, &atReqGetNoResult);
+            }
+            break;
+        }
+        count = count + ENBABLE_MODULE_UE_REBOOT_POLL_TIME;
+    }
+
+    return cellularStatus;
+}
+
+/*-----------------------------------------------------------*/
+
 /* Cellular HAL common porting interface. */
 /* coverity[misra_c_2012_rule_8_7_violation] */
 CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
@@ -296,6 +355,13 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
 
         if( cellularStatus == CELLULAR_SUCCESS )
         {
+            /* Report verbose mobile termination error. */
+            atReqGetNoResult.pAtCmd = "AT+CMEE=2";
+            cellularStatus = sendAtCommandWithRetryTimeout(pContext, &atReqGetNoResult);
+        }
+
+        if( cellularStatus == CELLULAR_SUCCESS )
+        {
             /* Setup mobile network operator profiles. */
 
             /* Check current MNO profile first to avoid unneccessary modem reboot. */
@@ -309,8 +375,13 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
                 // Set MNO profile if not set already
                 if( ( currentMNOProfile != CELLULAR_CONFIG_SET_MNO_PROFILE ) && ( currentMNOProfile != MNO_PROFILE_NOT_SET ) )
                 {
-                    (void)snprintf(atReqGetNoResult.pAtCmd, CELLULAR_AT_CMD_MAX_SIZE, "%s%d%s", "AT+COPS=2;+UMNOPROF=", CELLULAR_CONFIG_SET_MNO_PROFILE, ";+CFUN=15");
+                    (void)snprintf((char *)atReqGetNoResult.pAtCmd, CELLULAR_AT_CMD_MAX_SIZE, "%s%d", "AT+COPS=2;+UMNOPROF=", CELLULAR_CONFIG_SET_MNO_PROFILE );
                     cellularStatus = sendAtCommandWithRetryTimeout(pContext, &atReqGetNoResult);
+
+                    if (cellularStatus == CELLULAR_SUCCESS)
+                    {
+                        cellularStatus = rebootCellularModem(pContext, true);
+                    }
                 }
             }
         }
@@ -327,6 +398,12 @@ CellularError_t Cellular_ModuleEnableUE( CellularContext_t * pContext )
             /* Setup default RAT. */
             /*atReqGetNoResult.pAtCmd = "AT+URAT=7";
             cellularStatus = sendAtCommandWithRetryTimeout( pContext, &atReqGetNoResult );*/
+        }
+
+        if (cellularStatus == CELLULAR_SUCCESS)
+        {
+            atReqGetNoResult.pAtCmd = "AT+COPS=0";
+            cellularStatus = sendAtCommandWithRetryTimeout(pContext, &atReqGetNoResult);
         }
 
         if( cellularStatus == CELLULAR_SUCCESS )
@@ -370,6 +447,22 @@ CellularError_t Cellular_ModuleEnableUrc( CellularContext_t * pContext )
 
     atReqGetNoResult.pAtCmd = "AT+CTZR=1";
     ( void ) _Cellular_AtcmdRequestWithCallback( pContext, atReqGetNoResult );
+
+    /* +CGEV URC enable. */
+    atReqGetNoResult.pAtCmd = "AT+CGEREP=1,0";
+    (void)_Cellular_AtcmdRequestWithCallback(pContext, atReqGetNoResult);
+
+    /* Power saving mode URC enable. */
+    atReqGetNoResult.pAtCmd = "AT+UPSMR=1";
+    (void)_Cellular_AtcmdRequestWithCallback(pContext, atReqGetNoResult);
+
+    /* Mobile termination event reporting +CIEV URC enable. */
+    atReqGetNoResult.pAtCmd = "AT+CMER=1,0,0,2,1";
+    (void)_Cellular_AtcmdRequestWithCallback(pContext, atReqGetNoResult);
+
+    /* Enable signal level change indication via +CIEV URC. (To enable all indications, set to 4095) */
+    atReqGetNoResult.pAtCmd = "AT+UCIND=2";
+    (void)_Cellular_AtcmdRequestWithCallback(pContext, atReqGetNoResult);
 
     return cellularStatus;
 }
