@@ -184,6 +184,13 @@
         if( cellularStatus == CELLULAR_SUCCESS )
         {
             cellularStatus = Cellular_SetDns( CellularHandle, CellularSocketPdnContextId, testCELLULAR_DNS_SERVER_ADDRESS );
+            
+            /* Adding CELLULAR_UNSUPPORTED check due to init fail. */
+            /* Modem use dynamic DNS. */
+            if (cellularStatus == CELLULAR_UNSUPPORTED)
+            {
+                cellularStatus = CELLULAR_SUCCESS;
+            }
         }
 
         if( ( cellularStatus == CELLULAR_SUCCESS ) && ( PdnStatusBuffers.state == 1 ) )

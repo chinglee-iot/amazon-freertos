@@ -60,6 +60,8 @@ typedef struct cellularModuleContext
 uint32_t _Cellular_GetSocketId( CellularContext_t * pContext,
                                 uint8_t sessionId );
 
+CellularError_t rebootCellularModem(CellularContext_t* pContext, bool disablePsm);
+
 /*-----------------------------------------------------------*/
 
 /**
@@ -84,12 +86,22 @@ typedef enum MNOProfileType
 /*-----------------------------------------------------------*/
 
 /* Select network MNO profile. Default value is MNO_PROFILE_SW_DEFAULT */
-#define CELLULAR_CONFIG_SET_MNO_PROFILE     ( MNO_PROFILE_ATT )
+#define CELLULAR_CONFIG_SET_MNO_PROFILE     ( MNO_PROFILE_STANDARD_EUROPE )
+
+/* By default socket is closed in normal mode i.e. <async_close> flag is 0. */
+/* In normal mode, +USOCL can take time to close socket (Max timeout is 120 sec). */
+/* To avoid wait, socket can be closed in async mode via <async_close> flag. */
+/* In <async_close> mode, socket close will be notified via +UUSOCL URC. */
+/* Drawback of <async_close> mode is that if try to deactivate context (e.g. AT+CGACT=0,1) 
+/* prior to socket close URC, AT command will result in ERROR. */
+#define CELLULAR_CONFIG_SET_SOCKET_CLOSE_ASYNC_MODE     ( 0U )
 
 /*-----------------------------------------------------------*/
 
 /* MAX valid PDP contexts */
 #define MAX_PDP_CONTEXTS                            ( 4U )
+
+#define DEFAULT_BEARER_CONTEXT_ID                   ( 1U ) /* SARA-R4 default bearer context */
 
 #define CELULAR_PDN_CONTEXT_TYPE_MAX_SIZE           ( 7U ) /* The length of IP type e.g. IPV4V6. */
 
@@ -100,6 +112,10 @@ typedef enum MNOProfileType
 #define CELLULAR_PDN_STATUS_POS_CONTEXT_TYPE     ( 1U )
 #define CELLULAR_PDN_STATUS_POS_APN_NAME         ( 2U )
 #define CELLULAR_PDN_STATUS_POS_IP_ADDRESS       ( 3U )
+
+/* +CGACT PDN context activation tokens */
+#define CELLULAR_PDN_ACT_STATUS_POS_CONTEXT_ID        ( 0U )
+#define CELLULAR_PDN_ACT_STATUS_POS_CONTEXT_STATE     ( 1U )
 
 /**
  * @brief Context info from +CGDCONT (Context IP type, APN name, IP Address)
@@ -112,8 +128,14 @@ typedef struct CellularPdnContextInfo
     char ipAddress[MAX_PDP_CONTEXTS][CELLULAR_IP_ADDRESS_MAX_SIZE];   /**< IP address. */
 } CellularPdnContextInfo_t;
 
-/*-----------------------------------------------------------*/
-
+/**
+ * @brief Context <Act> state from +CGACT
+ */
+typedef struct CellularPdnContextActInfo
+{
+    BOOL contextsPresent[MAX_PDP_CONTEXTS];                           /**< Context present in +CGACT response or not. */
+    BOOL contextActState[MAX_PDP_CONTEXTS];                           /**< Context active state from +CGACT response. */
+} CellularPdnContextActInfo_t;
 
 /*-----------------------------------------------------------*/
 

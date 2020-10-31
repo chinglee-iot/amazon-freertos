@@ -89,4 +89,8 @@
     #endif
 #endif /* if ( CELLULAR_CONFIG_STATIC_ALLOCATION_SOCKET_CONTEXT == 1U ) */
 
+/* Changes from README section about test configs. */
+#define CELLULAR_MAX_RECV_DATA_LEN         ( 1024U )
+#define CELLULAR_MAX_SEND_DATA_LEN         ( 1024U )
+
 #endif /* _AWS_CELLULAR_CONFIG_H_ */

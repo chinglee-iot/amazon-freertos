@@ -435,6 +435,8 @@ static CellularCommInterfaceError_t _prvCommIntfOpen( CellularCommInterfaceRecei
     BOOL Status = TRUE;
     _cellularCommContext_t * pCellularCommContext = _getCellularCommContext();
     DWORD dwRes = 0;
+	
+	IotLogInfo("Opening Cellular COM port [%s]", CELLULAR_COMM_PATH);
 
     if( pCellularCommContext == NULL )
     {

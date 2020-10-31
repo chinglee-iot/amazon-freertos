@@ -45,9 +45,17 @@
 /*-----------------------------------------------------------*/
 
 /* TODO : confirm the value. */
-#define PDN_ACT_PACKET_REQ_TIMEOUT_MS           ( 10000UL )
+#define PDN_ACT_PACKET_REQ_TIMEOUT_MS           ( 150000UL )
 
-#define SOCKET_CONNECT_PACKET_REQ_TIMEOUT_MS    ( 27000U )
+#define PDN_DEACT_PACKET_REQ_TIMEOUT_MS         ( 40000UL )
+
+#define GPRS_ATTACH_REQ_TIMEOUT_MS              ( 180000UL )
+
+#define DNS_QUERY_REQ_TIMEOUT_MS                ( 120000UL )
+
+#define SOCKET_CLOSE_PACKET_REQ_TIMEOUT_MS      ( 120000U )
+
+#define SOCKET_CONNECT_PACKET_REQ_TIMEOUT_MS    ( 120000U )
 
 #define CELLULAR_AT_CMD_TYPICAL_MAX_SIZE        ( 32U )
 
@@ -65,6 +73,7 @@
                                                                                              #define USOCR_PROTOCOL_UDP                            ( 17U )
                                                                                              *
                                                                                              * /*-----------------------------------------------------------*/
+#define RAT_PRIOIRTY_LIST_LENGTH                 ( 3U )
 
 /**
  * @brief Parameters involved in receiving data through sockets
@@ -106,10 +115,26 @@ static CellularError_t _Cellular_GetSocketNumber( CellularHandle_t cellularHandl
 CellularError_t Cellular_SetPdnConfig( CellularHandle_t cellularHandle,
                                        uint8_t contextId,
                                        const CellularPdnConfig_t* pPdnConfig );
-static CellularPktStatus_t _Cellular_RecvFuncGetPdnStatus( CellularContext_t* pContext,
-                                                           const CellularATCommandResponse_t* pAtResp,
-                                                           void* pData,
-                                                           uint16_t dataLen );
+
+static CellularError_t _Cellular_GetPacketSwitchStatus( CellularHandle_t cellularHandle,
+                                                        bool* pPacketSwitchStatus );
+
+static CellularError_t _Cellular_GetContextActivationStatus( CellularHandle_t cellularHandle,
+                                                            CellularPdnContextActInfo_t* pPdpContextsActInfo );
+
+static bool _parseExtendedSignalQuality( char* pQcsqPayload,
+                                 CellularSignalInfo_t* pSignalInfo );
+static bool _parseSignalQuality( char* pQcsqPayload,
+                                CellularSignalInfo_t* pSignalInfo );
+static CellularPktStatus_t _Cellular_RecvFuncGetSignalInfo( CellularContext_t* pContext,
+                                                            const CellularATCommandResponse_t* pAtResp,
+                                                            void* pData,
+                                                            uint16_t dataLen );
+static CellularError_t controlSignalStrengthIndication( CellularContext_t* pContext,
+                                                        bool enable );
+
+CellularError_t Cellular_SetPsmSettings( CellularHandle_t cellularHandle,
+                                         const CellularPsmSettings_t* pPsmSettings );
 
 /*-----------------------------------------------------------*/
 
@@ -554,7 +579,7 @@ CellularError_t Cellular_SocketRecv( CellularHandle_t cellularHandle,
 
     if( cellularStatus != CELLULAR_SUCCESS )
     {
-        IotLogDebug( "_Cellular_CheckLibraryStatus failed" );
+        IotLogDebug( "Cellular_SocketRecv: _Cellular_CheckLibraryStatus failed" );
     }
     else if( socketHandle == NULL )
     {
@@ -562,7 +587,7 @@ CellularError_t Cellular_SocketRecv( CellularHandle_t cellularHandle,
     }
     else if( ( pBuffer == NULL ) || ( pReceivedDataLength == NULL ) || ( bufferLength == 0U ) )
     {
-        IotLogDebug( "_Cellular_RecvData: Bad input Param" );
+        IotLogDebug( "Cellular_SocketRecv: Bad input Param" );
         cellularStatus = CELLULAR_BAD_PARAMETER;
     }
     else
@@ -683,7 +708,7 @@ CellularError_t Cellular_SocketSend( CellularHandle_t cellularHandle,
 
     if( cellularStatus != CELLULAR_SUCCESS )
     {
-        IotLogDebug( "_Cellular_CheckLibraryStatus failed" );
+        IotLogDebug( "Cellular_SocketSend: _Cellular_CheckLibraryStatus failed" );
     }
     else if( socketHandle == NULL )
     {
@@ -778,7 +803,7 @@ CellularError_t Cellular_SocketClose( CellularHandle_t cellularHandle,
 
     if( cellularStatus != CELLULAR_SUCCESS )
     {
-        IotLogDebug( "_Cellular_CheckLibraryStatus failed" );
+        IotLogDebug( "Cellular_SocketClose: _Cellular_CheckLibraryStatus failed" );
     }
     else if( socketHandle == NULL )
     {
@@ -797,9 +822,9 @@ CellularError_t Cellular_SocketClose( CellularHandle_t cellularHandle,
         /* Close the socket. */
         if( socketHandle->socketState == SOCKETSTATE_CONNECTED )
         {
-            ( void ) snprintf( cmdBuf, CELLULAR_AT_CMD_TYPICAL_MAX_SIZE, "%s%u,0",
-                               "AT+USOCL=", sessionId );
-            pktStatus = _Cellular_AtcmdRequestWithCallback( pContext, atReqSocketClose );
+            ( void ) snprintf( cmdBuf, CELLULAR_AT_CMD_TYPICAL_MAX_SIZE, "%s%u,%d",
+                               "AT+USOCL=", sessionId, CELLULAR_CONFIG_SET_SOCKET_CLOSE_ASYNC_MODE );
+            pktStatus = _Cellular_TimeoutAtcmdRequestWithCallback(pContext, atReqSocketClose, SOCKET_CLOSE_PACKET_REQ_TIMEOUT_MS);
 
             /* Delete the socket config. */
             if( pktStatus != CELLULAR_PKT_STATUS_OK )
@@ -845,7 +870,7 @@ CellularError_t Cellular_SocketConnect( CellularHandle_t cellularHandle,
 
     if( cellularStatus != CELLULAR_SUCCESS )
     {
-        IotLogDebug( "_Cellular_CheckLibraryStatus failed" );
+        IotLogDebug( "Cellular_SocketConnect: _Cellular_CheckLibraryStatus failed" );
     }
     else if( pRemoteSocketAddress == NULL )
     {
@@ -929,28 +954,42 @@ CellularError_t Cellular_GetSimCardStatus( CellularHandle_t cellularHandle,
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
 
-    /* Parameters are checked in this API. */
-    pSimCardStatus->simCardState = CELLULAR_SIM_CARD_UNKNOWN;
-    pSimCardStatus->simCardLockState = CELLULAR_SIM_CARD_LOCK_UNKNOWN;
+    /* pContext is checked in _Cellular_CheckLibraryStatus function. */
+    cellularStatus = _Cellular_CheckLibraryStatus(pContext);
 
-    cellularStatus = Cellular_CommonGetSimCardLockStatus( cellularHandle, pSimCardStatus );
-
-    if( cellularStatus == CELLULAR_SUCCESS )
+    if (cellularStatus != CELLULAR_SUCCESS)
     {
-        if( ( pSimCardStatus->simCardLockState != CELLULAR_SIM_CARD_INVALID ) &&
-            ( pSimCardStatus->simCardLockState != CELLULAR_SIM_CARD_LOCK_UNKNOWN ) )
-        {
-            pSimCardStatus->simCardState = CELLULAR_SIM_CARD_INSERTED;
-        }
-        else
-        {
-            pSimCardStatus->simCardState = CELLULAR_SIM_CARD_UNKNOWN;
-        }
-
-        IotLogInfo( "Cellular_GetSimCardStatus, Sim Insert State[%d], Lock State[%d]",
-                     pSimCardStatus->simCardState, pSimCardStatus->simCardLockState );
+        IotLogDebug("Cellular_GetSimCardStatus: _Cellular_CheckLibraryStatus failed");
     }
+    else if (pSimCardStatus == NULL)
+    {
+        IotLogWarn("Cellular_GetSimCardStatus: Bad input Parameter ");
+        cellularStatus = CELLULAR_BAD_PARAMETER;
+    }
+    else
+    {
+        /* Parameters are checked in this API. */
+        pSimCardStatus->simCardState = CELLULAR_SIM_CARD_UNKNOWN;
+        pSimCardStatus->simCardLockState = CELLULAR_SIM_CARD_LOCK_UNKNOWN;
 
+        cellularStatus = Cellular_CommonGetSimCardLockStatus(cellularHandle, pSimCardStatus);
+
+        if (cellularStatus == CELLULAR_SUCCESS)
+        {
+            if ((pSimCardStatus->simCardLockState != CELLULAR_SIM_CARD_INVALID) &&
+                (pSimCardStatus->simCardLockState != CELLULAR_SIM_CARD_LOCK_UNKNOWN))
+            {
+                pSimCardStatus->simCardState = CELLULAR_SIM_CARD_INSERTED;
+            }
+            else
+            {
+                pSimCardStatus->simCardState = CELLULAR_SIM_CARD_UNKNOWN;
+            }
+
+            IotLogInfo("Cellular_GetSimCardStatus, Sim Insert State[%d], Lock State[%d]",
+                pSimCardStatus->simCardState, pSimCardStatus->simCardLockState);
+        }
+    }
     return cellularStatus;
 }
 
@@ -965,6 +1004,10 @@ CellularError_t Cellular_DeactivatePdn( CellularHandle_t cellularHandle,
     CellularError_t cellularStatus = CELLULAR_SUCCESS;
     CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
     char cmdBuf[ CELLULAR_AT_CMD_MAX_SIZE ] = { '\0' };
+    bool packetSwitchStatus = false;
+
+    CellularServiceStatus_t serviceStatus = { 0 };
+    CellularPdnContextActInfo_t pdpContextsActInfo = { 0 };
 
     CellularAtReq_t atReqDeactPdn =
     {
@@ -984,15 +1027,84 @@ CellularError_t Cellular_DeactivatePdn( CellularHandle_t cellularHandle,
         cellularStatus = _Cellular_CheckLibraryStatus( pContext );
     }
 
-    if( cellularStatus == CELLULAR_SUCCESS )
+    if (cellularStatus == CELLULAR_SUCCESS)
     {
-        ( void ) snprintf( cmdBuf, CELLULAR_AT_CMD_MAX_SIZE, "%s=0,%u", "AT+CGACT", contextId );
-        pktStatus = _Cellular_TimeoutAtcmdRequestWithCallback( pContext, atReqDeactPdn, PDN_ACT_PACKET_REQ_TIMEOUT_MS );
+        /* Get current network operator settings. */
+        cellularStatus = Cellular_CommonGetServiceStatus(cellularHandle, &serviceStatus);
 
-        if( pktStatus != CELLULAR_PKT_STATUS_OK )
+        if (cellularStatus == CELLULAR_SUCCESS)
         {
-            IotLogError( "Cellular_DeactivatePdn: can't deactivate PDN, PktRet: %d", pktStatus );
-            cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+            /* Check the current <Act> status of context. */
+            cellularStatus = _Cellular_GetContextActivationStatus(cellularHandle, &pdpContextsActInfo);
+        }
+
+        if (cellularStatus == CELLULAR_SUCCESS)
+        {
+            IotLogDebug("Cellular_DeactivatePdn: Listing operator and context details below.");
+            for (int i = 0; i < MAX_PDP_CONTEXTS - 1; i++)
+            {
+                // Print only those contexts that are present in +CGACT response
+                if (pdpContextsActInfo.contextsPresent[i])
+                {
+                    IotLogDebug("Context [%d], Act State [%d], Operator <Act> [%d]\r\n", i + 1, 
+                        pdpContextsActInfo.contextActState[i], serviceStatus.rat);
+                }
+            }
+
+            // Deactivate context if active
+            if (pdpContextsActInfo.contextActState[contextId - 1] == TRUE)
+            {
+                /* Don't deactivate LTE default bearer context */
+                /* Otherwise sending AT command "+CGACT=0,1" for deactivation will result in ERROR */
+                if ((serviceStatus.rat >= CELLULAR_RAT_LTE) && (contextId == DEFAULT_BEARER_CONTEXT_ID))
+                {
+                    IotLogInfo("Cellular_DeactivatePdn: Default Bearer context %d Active. Not allowed to deactivate.", contextId);
+                    cellularStatus = CELLULAR_NOT_ALLOWED;
+                }
+                else
+                {
+                    (void)snprintf(cmdBuf, CELLULAR_AT_CMD_MAX_SIZE, "%s=0,%u", "AT+CGACT", contextId);
+                    pktStatus = _Cellular_TimeoutAtcmdRequestWithCallback(pContext, atReqDeactPdn, PDN_DEACT_PACKET_REQ_TIMEOUT_MS);
+                    cellularStatus = _Cellular_TranslatePktStatus(pktStatus);
+                }
+
+                if (cellularStatus != CELLULAR_SUCCESS && cellularStatus != CELLULAR_NOT_ALLOWED)
+                {
+                    IotLogError("Cellular_DeactivatePdn: can't deactivate PDN, PktRet: %d", pktStatus);
+                    
+                    /* Sometimes +CGACT deactivation fails in 2G. Then check packet switch attach. If attached, detach packet switch. */
+                    if ((serviceStatus.rat == CELLULAR_RAT_GSM) || (serviceStatus.rat == CELLULAR_RAT_EDGE))
+                    {
+                        cellularStatus = _Cellular_GetPacketSwitchStatus(cellularHandle, &packetSwitchStatus);
+
+                        if ((cellularStatus == CELLULAR_SUCCESS) && (packetSwitchStatus == true))
+                        {
+                            IotLogError("Deactivate Packet switch");
+                            (void)snprintf(cmdBuf, CELLULAR_AT_CMD_MAX_SIZE, "%s", "AT+CGATT=0");
+                            pktStatus = _Cellular_TimeoutAtcmdRequestWithCallback(pContext, atReqDeactPdn, GPRS_ATTACH_REQ_TIMEOUT_MS);
+                            cellularStatus = _Cellular_TranslatePktStatus(pktStatus);
+                        }
+                        else if (cellularStatus != CELLULAR_SUCCESS)
+                        {
+                            IotLogError("Packet switch query failed");
+                            pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+                            cellularStatus = _Cellular_TranslatePktStatus(pktStatus);
+                        }
+                        else
+                        {
+                            IotLogInfo("Packet switch detached");
+                        }
+                    }
+                }
+            }
+            else
+            {
+                IotLogInfo("Cellular_DeactivatePdn: Context id [%d] is already deactive", contextId);
+            }
+        }
+        else
+        {
+            IotLogError("Cellular_DeactivatePdn: Unable to list operator and context details.");
         }
     }
 
@@ -1065,6 +1177,169 @@ static CellularPktStatus_t _Cellular_RecvFuncPacketSwitchStatus( CellularContext
 
 /*-----------------------------------------------------------*/
 
+/* Get PDN context Activation state */
+
+static CellularPktStatus_t _Cellular_RecvFuncGetPdpContextActState(CellularContext_t* pContext,
+    const CellularATCommandResponse_t* pAtResp,
+    void* pData,
+    uint16_t dataLen)
+{
+    char* pRespLine = NULL;
+    CellularPdnContextActInfo_t* pPDPContextsActInfo = (CellularPdnContextActInfo_t*)pData;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+    const CellularATCommandLine_t* pCommnadItem = NULL;
+    uint8_t tokenIndex = 0;
+    uint8_t contextId = 0;
+    int32_t tempValue = 0;
+    char* pToken = NULL;
+
+    if (pContext == NULL)
+    {
+        IotLogError("_Cellular_RecvFuncGetPdpContextActState: invalid context");
+        pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+    }
+    else if ((pPDPContextsActInfo == NULL) || (dataLen != sizeof(CellularPdnContextActInfo_t)))
+    {
+        pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
+    }
+    else if (pAtResp == NULL)
+    {
+        IotLogError("_Cellular_RecvFuncGetPdpContextActState: Response is invalid");
+        pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+    }
+    else if ((pAtResp->pItm == NULL) || (pAtResp->pItm->pLine == NULL))
+    {
+        IotLogError("_Cellular_RecvFuncGetPdpContextActState: no PDN context available");
+        pktStatus = CELLULAR_PKT_STATUS_OK;
+    }
+    else
+    {
+        pRespLine = pAtResp->pItm->pLine;
+
+        pCommnadItem = pAtResp->pItm;
+
+        while (pCommnadItem != NULL)
+        {
+            pRespLine = pCommnadItem->pLine;
+            IotLogDebug("_Cellular_RecvFuncGetPdpContextActState: pRespLine [%s]", pRespLine);
+
+            /* Removing all the Spaces in the AT Response. */
+            atCoreStatus = Cellular_ATRemoveAllWhiteSpaces(pRespLine);
+
+            if (atCoreStatus == CELLULAR_AT_SUCCESS)
+            {
+                atCoreStatus = Cellular_ATRemovePrefix(&pRespLine);
+
+                if (atCoreStatus == CELLULAR_AT_SUCCESS)
+                {
+                    atCoreStatus = Cellular_ATRemoveAllDoubleQuote(pRespLine);
+                }
+
+                if (atCoreStatus == CELLULAR_AT_SUCCESS)
+                {
+                    atCoreStatus = Cellular_ATGetNextTok(&pRespLine, &pToken);
+                }
+
+                if (atCoreStatus == CELLULAR_AT_SUCCESS)
+                {
+                    tokenIndex = 0;
+
+                    while ((pToken != NULL) && (atCoreStatus == CELLULAR_AT_SUCCESS))
+                    {
+                        switch (tokenIndex)
+                        {
+                        case (CELLULAR_PDN_ACT_STATUS_POS_CONTEXT_ID):
+                            IotLogDebug("_Cellular_RecvFuncGetPdpContextActState: Context Id pToken: %s", pToken);
+                            atCoreStatus = Cellular_ATStrtoi(pToken, 10, &tempValue);
+
+                            if (atCoreStatus == CELLULAR_AT_SUCCESS)
+                            {
+                                if ((tempValue >= (int32_t)CELLULAR_PDN_CONTEXT_ID_MIN) &&
+                                    (tempValue <= (int32_t)MAX_PDP_CONTEXTS))
+                                {
+                                    contextId = (uint8_t)tempValue;
+                                    pPDPContextsActInfo->contextsPresent[contextId - 1] = TRUE;
+                                    IotLogDebug("_Cellular_RecvFuncGetPdpContextActState: Context Id: %d", contextId);
+                                }
+                                else
+                                {
+                                    IotLogError("_Cellular_RecvFuncGetPdpContextActState: Invalid Context Id. Token %s", pToken);
+                                    atCoreStatus = CELLULAR_AT_ERROR;
+                                }
+                            }
+                            break;
+
+                        case (CELLULAR_PDN_ACT_STATUS_POS_CONTEXT_STATE):
+                            IotLogDebug("_Cellular_RecvFuncGetPdpContextActState: Context <Act> pToken: %s", pToken);
+                            atCoreStatus = Cellular_ATStrtoi(pToken, 10, &tempValue);
+
+                            if (atCoreStatus == CELLULAR_AT_SUCCESS)
+                            {
+                                pPDPContextsActInfo->contextActState[contextId - 1] = (bool)tempValue;
+                                IotLogDebug("_Cellular_RecvFuncGetPdpContextActState: Context <Act>: %d", pPDPContextsActInfo->contextActState[contextId - 1]);
+                            }
+                            break;
+
+                        default:
+                            break;
+                        }
+
+                        tokenIndex++;
+
+                        if (Cellular_ATGetNextTok(&pRespLine, &pToken) != CELLULAR_AT_SUCCESS)
+                        {
+                            break;
+                        }
+                    }
+                }
+            }
+
+            pktStatus = _Cellular_TranslateAtCoreStatus(atCoreStatus);
+
+            if (pktStatus != CELLULAR_PKT_STATUS_OK)
+            {
+                IotLogError("_Cellular_RecvFuncGetPdpContextActState: parse %s failed", pRespLine);
+                break;
+            }
+
+            pCommnadItem = pCommnadItem->pNext;
+        }
+    }
+
+    return pktStatus;
+}
+
+/*-----------------------------------------------------------*/
+
+/* Check activation status of particular context. */
+
+static CellularError_t _Cellular_GetContextActivationStatus(CellularHandle_t cellularHandle,
+                                                            CellularPdnContextActInfo_t* pPdpContextsActInfo)
+{
+    CellularContext_t* pContext = (CellularContext_t*)cellularHandle;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+
+    CellularAtReq_t atReqPacketSwitchStatus =
+    {
+        "AT+CGACT?",
+        CELLULAR_AT_MULTI_WITH_PREFIX,
+        "+CGACT",
+        _Cellular_RecvFuncGetPdpContextActState,
+        pPdpContextsActInfo,
+        sizeof(CellularPdnContextActInfo_t),
+    };
+
+    /* Internal function. Callee check parameters. */
+    pktStatus = _Cellular_AtcmdRequestWithCallback(pContext, atReqPacketSwitchStatus);
+    cellularStatus = _Cellular_TranslatePktStatus(pktStatus);
+
+    return cellularStatus;
+}
+
+/*-----------------------------------------------------------*/
+
 static CellularError_t _Cellular_GetPacketSwitchStatus( CellularHandle_t cellularHandle,
                                                         bool * pPacketSwitchStatus )
 {
@@ -1102,6 +1377,8 @@ CellularError_t Cellular_ActivatePdn( CellularHandle_t cellularHandle,
     bool packetSwitchStatus = false;
     bool pdnStatus = false;
 
+    CellularPdnContextActInfo_t pdpContextsActInfo = { 0 };
+
     CellularAtReq_t atReqActPdn =
     {
         cmdBuf,
@@ -1122,61 +1399,45 @@ CellularError_t Cellular_ActivatePdn( CellularHandle_t cellularHandle,
 
     if( cellularStatus == CELLULAR_SUCCESS )
     {
-        /* Check packet switch attach first. If not attached, attach packet switch first. */
-        cellularStatus = _Cellular_GetPacketSwitchStatus( cellularHandle, &packetSwitchStatus );
+        /* Check the current <Act> status of context. If not activated, activate the PDN context ID. */
+        cellularStatus = _Cellular_GetContextActivationStatus(cellularHandle, &pdpContextsActInfo);
 
-        if( ( cellularStatus == CELLULAR_SUCCESS ) && ( packetSwitchStatus == false ) )
+        if (cellularStatus == CELLULAR_SUCCESS)
         {
-            IotLogError( "Activate Packet switch" );
-            ( void ) snprintf( cmdBuf, CELLULAR_AT_CMD_MAX_SIZE, "%s", "AT+CGATT=1" );
-            pktStatus = _Cellular_TimeoutAtcmdRequestWithCallback( pContext, atReqActPdn, PDN_ACT_PACKET_REQ_TIMEOUT_MS );
+            IotLogDebug("Cellular_ActivatePdn: Listing operator and context details below.");
+            for (int i = 0; i < MAX_PDP_CONTEXTS - 1; i++)
+            {
+                // Print only those contexts that are present in +CGACT response
+                if (pdpContextsActInfo.contextsPresent[i])
+                {
+                    IotLogDebug("Cellular_ActivatePdn: Context [%d], Act State [%d]\r\n", i + 1, 
+                        pdpContextsActInfo.contextActState[i]);
+                }
+            }
         }
-        else if( cellularStatus != CELLULAR_SUCCESS )
+
+        // Activate context if not already active
+        if (pdpContextsActInfo.contextActState[contextId - 1] == FALSE)
         {
-            IotLogError( "Packet switch query failed" );
-            pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+            if (pktStatus == CELLULAR_PKT_STATUS_OK)
+            {
+                (void)snprintf(cmdBuf, CELLULAR_AT_CMD_MAX_SIZE, "%s=1,%u", "AT+CGACT", contextId);
+                pktStatus = _Cellular_TimeoutAtcmdRequestWithCallback(pContext, atReqActPdn, PDN_ACT_PACKET_REQ_TIMEOUT_MS);
+            }
+
+            if (pktStatus != CELLULAR_PKT_STATUS_OK)
+            {
+                IotLogError("Cellular_ActivatePdn: can't activate PDN, PktRet: %d", pktStatus);
+                cellularStatus = _Cellular_TranslatePktStatus(pktStatus);
+            }
         }
         else
         {
-            IotLogError( "Packet switch attached" );
-        }
-
-        /* Check the current attach status. If not activated, activate the PDN context ID. */
-        if( pktStatus == CELLULAR_PKT_STATUS_OK )
-        {
-            ( void ) snprintf( cmdBuf, CELLULAR_AT_CMD_MAX_SIZE, "%s=1,%u", "AT+CGACT", contextId );
-            pktStatus = _Cellular_TimeoutAtcmdRequestWithCallback( pContext, atReqActPdn, PDN_ACT_PACKET_REQ_TIMEOUT_MS );
-        }
-
-        if( pktStatus != CELLULAR_PKT_STATUS_OK )
-        {
-            IotLogError( "Cellular_ActivatePdn: can't activate PDN, PktRet: %d", pktStatus );
-            cellularStatus = _Cellular_TranslatePktStatus( pktStatus );
+            IotLogInfo("Cellular_ActivatePdn: Context id [%d] is already active", contextId);
         }
     }
 
     return cellularStatus;
-}
-
-
-/*-----------------------------------------------------------*/
-
-/* Get PDN status info*/
-
-static CellularPktStatus_t _Cellular_RecvFuncGetPdnStatus(CellularContext_t* pContext,
-    const CellularATCommandResponse_t* pAtResp,
-    void* pData,
-    uint16_t dataLen)
-{
-    char* pRespLine = NULL;
-    CellularPdnStatus_t* pPdnStatusBuffers = (CellularPdnStatus_t*)pData;
-    uint8_t numStatusBuffers = (uint8_t)dataLen;
-    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
-    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
-    const CellularATCommandLine_t* pCommnadItem = NULL;
-
-
-    return pktStatus;
 }
 
 /*-----------------------------------------------------------*/
@@ -1189,7 +1450,47 @@ CellularError_t Cellular_GetPdnStatus( CellularHandle_t cellularHandle,
                                        uint8_t numStatusBuffers,
                                        uint8_t * pNumStatus )
 {
-    return CELLULAR_SUCCESS;
+    CellularContext_t* pContext = (CellularContext_t*)cellularHandle;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+
+    CellularPdnContextActInfo_t pdpContextsActInfo = { 0 };
+
+    if (cellularStatus == CELLULAR_SUCCESS)
+    {
+        /* Make sure the library is open. */
+        cellularStatus = _Cellular_CheckLibraryStatus(pContext);
+    }
+
+    if ((pPdnStatusBuffers == NULL) || (pNumStatus == NULL) || (numStatusBuffers < 1u))
+    {
+        cellularStatus = CELLULAR_BAD_PARAMETER;
+        IotLogWarn("_Cellular_GetPdnStatus: Bad input Parameter ");
+    }
+
+    if (cellularStatus == CELLULAR_SUCCESS)
+    {
+        /* Check the current <Act> status of contexts. */
+        cellularStatus = _Cellular_GetContextActivationStatus(cellularHandle, &pdpContextsActInfo);
+
+        if (cellularStatus == CELLULAR_SUCCESS)
+        {
+            IotLogDebug("Cellular_GetPdnStatus: Listing operator and context details below.");
+            for (int i = 0; i < MAX_PDP_CONTEXTS - 1; i++)
+            {
+                // Print only those contexts that are present in +CGACT response
+                if (pdpContextsActInfo.contextsPresent[i])
+                {
+                    IotLogDebug("Context [%d], Act State [%d]\r\n", i + 1, pdpContextsActInfo.contextActState[i]);
+                }
+            }
+
+            // TODO: Currently only one context state can be saved in PdnStatusBuffers.
+            pPdnStatusBuffers->state = pdpContextsActInfo.contextActState[0];
+        }
+    }
+
+    return cellularStatus;
 }
 
 /*-----------------------------------------------------------*/
@@ -1199,7 +1500,7 @@ CellularError_t Cellular_GetPdnStatus( CellularHandle_t cellularHandle,
 CellularError_t Cellular_GetEidrxSettings( CellularHandle_t cellularHandle,
                                            CellularEidrxSettingsList_t * pEidrxSettingsList )
 {
-    return CELLULAR_SUCCESS;
+    return Cellular_CommonGetEidrxSettings(cellularHandle, pEidrxSettingsList);
 }
 
 /*-----------------------------------------------------------*/
@@ -1209,7 +1510,7 @@ CellularError_t Cellular_GetEidrxSettings( CellularHandle_t cellularHandle,
 CellularError_t Cellular_SetEidrxSettings( CellularHandle_t cellularHandle,
                                            const CellularEidrxSettings_t * pEidrxSettings )
 {
-    return CELLULAR_SUCCESS;
+    return Cellular_CommonSetEidrxSettings(cellularHandle, pEidrxSettings);
 }
 
 /*-----------------------------------------------------------*/
@@ -1220,7 +1521,171 @@ CellularError_t Cellular_SetRatPriority( CellularHandle_t cellularHandle,
                                          const CellularRat_t * pRatPriorities,
                                          uint8_t ratPrioritiesLength )
 {
-    return CELLULAR_SUCCESS;
+    CellularContext_t* pContext = (CellularContext_t*)cellularHandle;
+    uint8_t i = 0;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    char cmdBuf[CELLULAR_AT_CMD_MAX_SIZE] = { '\0' };
+
+    CellularAtReq_t atReqSetRatPriority =
+    {
+        cmdBuf,
+        CELLULAR_AT_NO_RESULT,
+        NULL,
+        NULL,
+        NULL,
+        0,
+    };
+
+    cellularStatus = _Cellular_CheckLibraryStatus(pContext);
+
+    if (cellularStatus != CELLULAR_SUCCESS)
+    {
+        IotLogDebug("Cellular_SetRatPriority: _Cellular_CheckLibraryStatus failed");
+    }
+    else if ((pRatPriorities == NULL) || (ratPrioritiesLength == 0U) ||
+        (ratPrioritiesLength > (uint8_t)CELLULAR_MAX_RAT_PRIORITY_COUNT))
+    {
+        IotLogWarn("Cellular_SetRatPriority: Bad input Parameter ");
+        cellularStatus = CELLULAR_BAD_PARAMETER;
+    }
+    else
+    {
+        /* In case of +UMNOPROF=0, AT+URAT set commad is not allowed */
+        if (CELLULAR_CONFIG_SET_MNO_PROFILE != 0)
+        {
+            (void)strcpy(cmdBuf, "AT+CFUN=4;+URAT=");
+
+            while (i < ratPrioritiesLength)
+            {
+                if (pRatPriorities[i] == CELLULAR_RAT_GSM || pRatPriorities[i] == CELLULAR_RAT_EDGE)
+                {
+                    (void)strcat(cmdBuf, "9");
+                }
+                else if (pRatPriorities[i] == CELLULAR_RAT_CATM1)
+                {
+                    (void)strcat(cmdBuf, "7");
+                }
+                else if (pRatPriorities[i] == CELLULAR_RAT_NBIOT)
+                {
+                    (void)strcat(cmdBuf, "8");
+                }
+                else
+                {
+                    cellularStatus = CELLULAR_BAD_PARAMETER;
+                    break;
+                }
+
+                i++;
+
+                if (i < ratPrioritiesLength)
+                {
+                    (void)strcat(cmdBuf, ",");
+                }
+            }
+
+            (void)strcat(cmdBuf, ";+CFUN=1");
+
+            if (cellularStatus == CELLULAR_SUCCESS)
+            {
+                pktStatus = _Cellular_AtcmdRequestWithCallback(pContext, atReqSetRatPriority);
+                cellularStatus = _Cellular_TranslatePktStatus(pktStatus);
+            }
+        }
+        else
+        {
+            IotLogDebug("Cellular_SetRatPriority: Automatic selection as UMNOPROF profile is 0");
+        }
+    }
+
+    return cellularStatus;
+}
+
+/*-----------------------------------------------------------*/
+
+/* Get modem RAT priority setting. */
+/* coverity[misra_c_2012_rule_8_13_violation] */
+static CellularPktStatus_t _Cellular_RecvFuncGetRatPriority(CellularContext_t* pContext,
+                                                            const CellularATCommandResponse_t* pAtResp,
+                                                            void* pData,
+                                                            uint16_t dataLen)
+{
+    char* pInputLine = NULL, * pToken = NULL;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+    CellularRat_t* pRatPriorities = NULL;
+    uint8_t ratIndex = 0;
+    uint32_t maxRatPriorityLength = (dataLen > RAT_PRIOIRTY_LIST_LENGTH ? RAT_PRIOIRTY_LIST_LENGTH : dataLen);
+
+    if (pContext == NULL)
+    {
+        IotLogError("_Cellular_RecvFuncGetRatPriority: Invalid context");
+        pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+    }
+    else if ((pAtResp == NULL) || (pAtResp->pItm == NULL) ||
+             (pAtResp->pItm->pLine == NULL) || (pData == NULL) || (dataLen == 0U))
+    {
+        IotLogError("_Cellular_RecvFuncGetRatPriority: Invalid param");
+        pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
+    }
+    else
+    {
+        pInputLine = pAtResp->pItm->pLine;
+        pRatPriorities = (CellularRat_t*)pData;
+
+        atCoreStatus = Cellular_ATRemovePrefix(&pInputLine);
+
+        if (atCoreStatus == CELLULAR_AT_SUCCESS)
+        {
+            atCoreStatus = Cellular_ATRemoveAllWhiteSpaces(pInputLine);
+        }
+
+        if (atCoreStatus == CELLULAR_AT_SUCCESS)
+        {
+            memset(pRatPriorities, CELLULAR_RAT_INVALID, dataLen);
+
+            /* pInputLine : 7,8,9. */
+            atCoreStatus = Cellular_ATGetNextTok(&pInputLine, &pToken);
+
+            if (atCoreStatus == CELLULAR_AT_SUCCESS)
+            {
+                while (pToken != NULL && ratIndex < maxRatPriorityLength)
+                {
+                    IotLogDebug("_Cellular_RecvFuncGetRatPriority: pToken [%s]", pToken);
+                    if (strcmp(pToken, "7") == 0)
+                    {
+                        pRatPriorities[ratIndex] = CELLULAR_RAT_CATM1;
+                        IotLogDebug("_Cellular_RecvFuncGetRatPriority: CELLULAR_RAT_CATM1");
+                    }
+                    else if (strcmp(pToken, "8") == 0)
+                    {
+                        pRatPriorities[ratIndex] = CELLULAR_RAT_NBIOT;
+                        IotLogDebug("_Cellular_RecvFuncGetRatPriority: CELLULAR_RAT_NBIOT");
+                    }
+                    else if (strcmp(pToken, "9") == 0)
+                    {
+                        pRatPriorities[ratIndex] = CELLULAR_RAT_GSM; // or CELLULAR_RAT_EDGE
+                        IotLogDebug("_Cellular_RecvFuncGetRatPriority: CELLULAR_RAT_GSM");
+                    }
+                    else
+                    {
+                        IotLogDebug("_Cellular_RecvFuncGetRatPriority: Invalid RAT string [%s]", pToken);
+                    }
+
+                    ratIndex++;
+
+                    if (Cellular_ATGetNextTok(&pInputLine, &pToken) != CELLULAR_AT_SUCCESS)
+                    {
+                        break;
+                    }
+                }
+            }
+        }
+
+        pktStatus = _Cellular_TranslateAtCoreStatus(atCoreStatus);
+    }
+
+    return pktStatus;
 }
 
 /*-----------------------------------------------------------*/
@@ -1232,7 +1697,378 @@ CellularError_t Cellular_GetRatPriority( CellularHandle_t cellularHandle,
                                          uint8_t ratPrioritiesLength,
                                          uint8_t * pReceiveRatPrioritesLength )
 {
-    return CELLULAR_SUCCESS;
+    CellularContext_t* pContext = (CellularContext_t*)cellularHandle;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    uint8_t ratIndex = 0;
+
+    CellularAtReq_t atReqSetRatPriority =
+    {
+        "AT+URAT?",
+        CELLULAR_AT_WITH_PREFIX,
+        "+URAT",
+        _Cellular_RecvFuncGetRatPriority,
+        pRatPriorities,
+        (uint16_t)ratPrioritiesLength,
+    };
+
+    cellularStatus = _Cellular_CheckLibraryStatus(pContext);
+
+    if (cellularStatus != CELLULAR_SUCCESS)
+    {
+        IotLogDebug("Cellular_GetRatPriority: _Cellular_CheckLibraryStatus failed");
+    }
+    else if ((pRatPriorities == NULL) || (ratPrioritiesLength == 0U) ||
+        (ratPrioritiesLength > (uint8_t)CELLULAR_MAX_RAT_PRIORITY_COUNT) ||
+        (pReceiveRatPrioritesLength == NULL))
+    {
+        IotLogWarn("Cellular_GetRatPriority: Bad input Parameter ");
+        cellularStatus = CELLULAR_BAD_PARAMETER;
+    }
+    else
+    {
+        /* In case of +UMNOPROF=0, AT+URAT? read commad is not allowed */
+        if (CELLULAR_CONFIG_SET_MNO_PROFILE != 0)
+        {
+            pktStatus = _Cellular_AtcmdRequestWithCallback(pContext, atReqSetRatPriority);
+
+            if (pktStatus == CELLULAR_PKT_STATUS_OK)
+            {
+                for (ratIndex = 0; ratIndex < ratPrioritiesLength; ratIndex++)
+                {
+                    if (pRatPriorities[ratIndex] == CELLULAR_RAT_INVALID)
+                    {
+                        break;
+                    }
+                }
+
+                *pReceiveRatPrioritesLength = ratIndex;
+            }
+
+            cellularStatus = _Cellular_TranslatePktStatus(pktStatus);
+        }
+        else
+        {
+            IotLogDebug("Cellular_GetRatPriority: Automatic selection as UMNOPROF profile is 0");
+
+            pRatPriorities[ratIndex++] = CELLULAR_RAT_CATM1;
+            pRatPriorities[ratIndex++] = CELLULAR_RAT_NBIOT;
+            pRatPriorities[ratIndex++] = CELLULAR_RAT_GSM;
+            *pReceiveRatPrioritesLength = RAT_PRIOIRTY_LIST_LENGTH;
+        }
+    }
+   
+    return cellularStatus;
+}
+
+/*-----------------------------------------------------------*/
+
+static bool _parseExtendedSignalQuality(char* pQcsqPayload,
+    CellularSignalInfo_t* pSignalInfo)
+{
+    char* pToken = NULL, * pTmpQcsqPayload = pQcsqPayload;
+    int32_t tempValue = 0;
+    int16_t berValue = 0;
+    bool parseStatus = true;
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+
+    if ((pSignalInfo == NULL) || (pQcsqPayload == NULL))
+    {
+        IotLogError("_parseExtendedSignalQuality: Invalid Input Parameters");
+        parseStatus = false;
+    }
+
+    /*  +CESQ: <rxlev>,<ber>,<rscp>,<ecn0>,<rsrq>,<rsrp>. */
+
+    /* Skip <rxlev>. */
+    atCoreStatus = Cellular_ATGetNextTok(&pTmpQcsqPayload, &pToken);
+
+    /* Parse <ber>. */
+    if (atCoreStatus == CELLULAR_AT_SUCCESS)
+    {
+        atCoreStatus = Cellular_ATGetNextTok(&pTmpQcsqPayload, &pToken);
+    }
+
+    if (atCoreStatus == CELLULAR_AT_SUCCESS)
+    {
+        atCoreStatus = Cellular_ATStrtoi(pToken, 10, &tempValue);
+
+        if ((atCoreStatus == CELLULAR_AT_SUCCESS) && (tempValue <= INT16_MAX) && (tempValue >= INT16_MIN))
+        {
+            /*
+            Bit Error Rate (BER):
+                • 0..7: as RXQUAL values in the table in 3GPP TS 45.008 [124], subclause 8.2.4
+                • 99: not known or not detectable
+            */
+            if ((tempValue >= 0) && (tempValue <= 7))
+            {
+                pSignalInfo->ber = (int16_t)tempValue;
+            }
+            else
+            {
+                pSignalInfo->ber = CELLULAR_INVALID_SIGNAL_VALUE;
+            }
+        }
+        else
+        {
+            IotLogError("_parseExtendedSignalQuality: Error in processing BER. Token %s", pToken);
+            atCoreStatus = CELLULAR_AT_ERROR;
+        }
+    }
+
+    /* Skip <rscp>. */
+    if (atCoreStatus == CELLULAR_AT_SUCCESS)
+    {
+        atCoreStatus = Cellular_ATGetNextTok(&pTmpQcsqPayload, &pToken);
+    }
+
+    /* Skip <ecno>. */
+    if (atCoreStatus == CELLULAR_AT_SUCCESS)
+    {
+        atCoreStatus = Cellular_ATGetNextTok(&pTmpQcsqPayload, &pToken);
+    }
+
+    /* Parse <rsrq>. */
+    if (atCoreStatus == CELLULAR_AT_SUCCESS)
+    {
+        atCoreStatus = Cellular_ATGetNextTok(&pTmpQcsqPayload, &pToken);
+    }
+
+    if (atCoreStatus == CELLULAR_AT_SUCCESS)
+    {
+        atCoreStatus = Cellular_ATStrtoi(pToken, 10, &tempValue);
+
+        if (atCoreStatus == CELLULAR_AT_SUCCESS)
+        {
+            /*
+            Reference Signal Received Quality (RSRQ):
+                • 0: less than -19.5 dB
+                • 1..33: from -19.5 dB to -3.5 dB with 0.5 dB steps
+                • 34: -3 dB or greater
+                • 255: not known or not detectable
+            */
+            if ((tempValue >= 0) && (tempValue <= 34))
+            {
+                pSignalInfo->rsrq = (int16_t)((-20) + (tempValue * 0.5));
+            }
+            else
+            {
+                pSignalInfo->rsrq = CELLULAR_INVALID_SIGNAL_VALUE;
+            }
+        }
+        else
+        {
+            IotLogError("_parseExtendedSignalQuality: Error in processing RSRP. Token %s", pToken);
+            parseStatus = false;
+        }
+    }
+
+    /* Parse <rsrp>. */
+    if (atCoreStatus == CELLULAR_AT_SUCCESS)
+    {
+        atCoreStatus = Cellular_ATGetNextTok(&pTmpQcsqPayload, &pToken);
+    }
+
+    if (atCoreStatus == CELLULAR_AT_SUCCESS)
+    {
+        atCoreStatus = Cellular_ATStrtoi(pToken, 10, &tempValue);
+
+        if (atCoreStatus == CELLULAR_AT_SUCCESS)
+        {
+            /*
+            Reference Signal Received Power(RSRP) :
+                • 0 : less than - 140 dBm
+                • 1..96 : from - 140 dBm to - 45 dBm with 1 dBm steps
+                • 97 : -44 dBm or greater
+                • 255 : not known or not detectable
+            */
+            if ((tempValue >= 0) && (tempValue <= 97))
+            {
+                pSignalInfo->rsrp = (int16_t)((-141) + (tempValue));
+            }
+            else
+            {
+                pSignalInfo->rsrp = CELLULAR_INVALID_SIGNAL_VALUE;
+            }
+
+        }
+        else
+        {
+            IotLogError("_parseExtendedSignalQuality: Error in processing RSRP. Token %s", pToken);
+            parseStatus = false;
+        }
+    }
+
+    return parseStatus;
+}
+
+/*-----------------------------------------------------------*/
+
+static bool _parseSignalQuality(char* pQcsqPayload,
+                                CellularSignalInfo_t* pSignalInfo)
+{
+    char* pToken = NULL, * pTmpQcsqPayload = pQcsqPayload;
+    int32_t tempValue = 0;
+    int16_t berValue = 0;
+    bool parseStatus = true;
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+
+    if ((pSignalInfo == NULL) || (pQcsqPayload == NULL))
+    {
+        IotLogError("_parseSignalQuality: Invalid Input Parameters");
+        parseStatus = false;
+    }
+
+    /* +CSQ: <signal_power>,<qual>. */
+
+    /* Parse <signal_power>. */
+    atCoreStatus = Cellular_ATGetNextTok(&pTmpQcsqPayload, &pToken);
+
+    if (atCoreStatus == CELLULAR_AT_SUCCESS)
+    {
+        atCoreStatus = Cellular_ATStrtoi(pToken, 10, &tempValue);
+
+        if (atCoreStatus == CELLULAR_AT_SUCCESS)
+        {
+            /* 
+            The allowed range is 0-31 and 99.
+                0           RSSI of the network <= -113 dBm
+                1           -111 dBm
+                2...30      -109 dBm <= RSSI of the network <= -53 dBm
+                31          -51 dBm <= RSSI of the network
+                99          Not known or not detectable
+            */
+            if ((tempValue >= 0) && (tempValue <= 31))
+            {
+                pSignalInfo->rssi = (int16_t)((-113) + (tempValue * 2));
+            }
+            else if (tempValue == 99)
+            {
+                pSignalInfo->rssi = -113;
+            }
+            else
+            {
+                pSignalInfo->rssi = CELLULAR_INVALID_SIGNAL_VALUE;
+            }
+        }
+        else
+        {
+            IotLogError("_parseSignalQuality: Error in processing RSSI. Token %s", pToken);
+            parseStatus = false;
+        }
+    }
+
+    /* Parse <qual>. */
+    if (atCoreStatus == CELLULAR_AT_SUCCESS)
+    {
+        atCoreStatus = Cellular_ATGetNextTok(&pTmpQcsqPayload, &pToken);
+    }
+
+    if (atCoreStatus == CELLULAR_AT_SUCCESS)
+    {
+        atCoreStatus = Cellular_ATStrtoi(pToken, 10, &tempValue);
+
+        if (atCoreStatus == CELLULAR_AT_SUCCESS)
+        {
+            /* 
+            The allowed range is 0-7 and 99 :
+                In 2G RAT CS dedicated and GPRS packet transfer mode indicates the Bit Error Rate (BER) as specified in 3GPP TS 45.008  
+            */
+            if ((tempValue >= 0) && (tempValue <= 7))
+            {
+                pSignalInfo->ber = (int16_t)tempValue;
+            }
+            else
+            {
+                pSignalInfo->ber = CELLULAR_INVALID_SIGNAL_VALUE;
+            }
+        }
+        else
+        {
+            IotLogError("_parseSignalQuality: Error in processing ber. Token %s", pToken);
+            parseStatus = false;
+        }
+    }
+
+    return parseStatus;
+}
+
+/*-----------------------------------------------------------*/
+
+/* parse signal strength response */
+
+static CellularPktStatus_t _Cellular_RecvFuncGetSignalInfo( CellularContext_t* pContext,
+                                                            const CellularATCommandResponse_t* pAtResp,
+                                                            void* pData,
+                                                            uint16_t dataLen )
+{
+    char* pInputLine = NULL;
+    CellularSignalInfo_t* pSignalInfo = (CellularSignalInfo_t*)pData;
+    bool parseStatus = true;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularATError_t atCoreStatus = CELLULAR_AT_SUCCESS;
+    bool isExtendedResponse = false;
+
+    if (pContext == NULL)
+    {
+        pktStatus = CELLULAR_PKT_STATUS_INVALID_HANDLE;
+    }
+    else if ((pSignalInfo == NULL) || (dataLen != sizeof(CellularSignalInfo_t)))
+    {
+        pktStatus = CELLULAR_PKT_STATUS_BAD_PARAM;
+    }
+    else if ((pAtResp == NULL) || (pAtResp->pItm == NULL) || (pAtResp->pItm->pLine == NULL))
+    {
+        IotLogError("GetSignalInfo: Input Line passed is NULL");
+        pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+    }
+    else
+    {
+        pInputLine = pAtResp->pItm->pLine;
+        if (strstr(pInputLine, "+CESQ"))
+        {
+            IotLogDebug("GetSignalInfo: ExtendedResponse received.");
+            isExtendedResponse = true;
+        }
+
+        atCoreStatus = Cellular_ATRemovePrefix(&pInputLine);
+
+        if (atCoreStatus == CELLULAR_AT_SUCCESS)
+        {
+            atCoreStatus = Cellular_ATRemoveAllWhiteSpaces(pInputLine);
+        }
+
+        if (atCoreStatus != CELLULAR_AT_SUCCESS)
+        {
+            pktStatus = _Cellular_TranslateAtCoreStatus(atCoreStatus);
+        }
+    }
+
+    if (pktStatus == CELLULAR_PKT_STATUS_OK)
+    {
+        if (isExtendedResponse)
+        {
+            parseStatus = _parseExtendedSignalQuality(pInputLine, pSignalInfo);
+        }
+        else
+        {
+            parseStatus = _parseSignalQuality(pInputLine, pSignalInfo);
+        }
+
+        if (parseStatus != true)
+        {
+            pSignalInfo->rssi = CELLULAR_INVALID_SIGNAL_VALUE;
+            pSignalInfo->rsrp = CELLULAR_INVALID_SIGNAL_VALUE;
+            pSignalInfo->rsrq = CELLULAR_INVALID_SIGNAL_VALUE;
+            pSignalInfo->ber = CELLULAR_INVALID_SIGNAL_VALUE;
+            pSignalInfo->bars = CELLULAR_INVALID_SIGNAL_BAR_VALUE;
+            pktStatus = CELLULAR_PKT_STATUS_FAILURE;
+        }
+    }
+
+    return pktStatus;
 }
 
 /*-----------------------------------------------------------*/
@@ -1240,7 +2076,65 @@ CellularError_t Cellular_GetRatPriority( CellularHandle_t cellularHandle,
 CellularError_t Cellular_GetSignalInfo( CellularHandle_t cellularHandle,
                                         CellularSignalInfo_t * pSignalInfo )
 {
-    return CELLULAR_SUCCESS;
+    CellularContext_t* pContext = (CellularContext_t*)cellularHandle;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    CellularRat_t rat = CELLULAR_RAT_INVALID;
+    CellularAtReq_t atReqQuerySignalInfo =
+    {
+        "AT+CSQ",
+        CELLULAR_AT_WITH_PREFIX,
+        "+CSQ",
+        _Cellular_RecvFuncGetSignalInfo,
+        pSignalInfo,
+        sizeof(CellularSignalInfo_t),
+    };
+    CellularAtReq_t atReqQueryExtendedSignalInfo =
+    {
+        "AT+CESQ",
+        CELLULAR_AT_WITH_PREFIX,
+        "+CESQ",
+        _Cellular_RecvFuncGetSignalInfo,
+        pSignalInfo,
+        sizeof(CellularSignalInfo_t),
+    };
+
+    cellularStatus = _Cellular_CheckLibraryStatus(pContext);
+
+    if (cellularStatus != CELLULAR_SUCCESS)
+    {
+        IotLogDebug("Cellular_GetSignalInfo: _Cellular_CheckLibraryStatus failed");
+    }
+    else if (pSignalInfo == NULL)
+    {
+        cellularStatus = CELLULAR_BAD_PARAMETER;
+    }
+    else
+    {
+        cellularStatus = _Cellular_GetCurrentRat(pContext, &rat);
+    }
+
+    if (cellularStatus == CELLULAR_SUCCESS)
+    {
+        /* Get +CSQ response */
+        pktStatus = _Cellular_AtcmdRequestWithCallback(pContext, atReqQuerySignalInfo);
+
+        if (pktStatus == CELLULAR_PKT_STATUS_OK)
+        {
+            /* Get +CESQ response */
+            pktStatus = _Cellular_AtcmdRequestWithCallback(pContext, atReqQueryExtendedSignalInfo);
+
+            if (pktStatus == CELLULAR_PKT_STATUS_OK)
+            {
+                /* If the convert failed, the API will return CELLULAR_INVALID_SIGNAL_BAR_VALUE in bars field. */
+                (void)_Cellular_ComputeSignalBars(rat, pSignalInfo);
+            }
+
+            cellularStatus = _Cellular_TranslatePktStatus(pktStatus);
+        }
+    }
+
+    return cellularStatus;
 }
 
 /*-----------------------------------------------------------*/
@@ -1251,7 +2145,59 @@ CellularError_t Cellular_SetDns( CellularHandle_t cellularHandle,
                                  uint8_t contextId,
                                  const char * pDnsServerAddress )
 {
+    /* Modem use dynamic DNS addresses. Return unsupported. */
     return CELLULAR_UNSUPPORTED;
+}
+
+/*-----------------------------------------------------------*/
+
+static CellularError_t controlSignalStrengthIndication( CellularContext_t* pContext,
+                                                        bool enable )
+{
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    char cmdBuf[CELLULAR_AT_CMD_TYPICAL_MAX_SIZE] = { '\0' };
+    uint8_t enable_value = 0;
+    CellularAtReq_t atReqControlSignalStrengthIndication =
+    {
+        cmdBuf,
+        CELLULAR_AT_NO_RESULT,
+        NULL,
+        NULL,
+        NULL,
+        0,
+    };
+
+    if (enable == true)
+    {
+        enable_value = 1;
+    }
+    else
+    {
+        enable_value = 0;
+    }
+
+    cellularStatus = _Cellular_CheckLibraryStatus(pContext);
+
+    if (cellularStatus == CELLULAR_SUCCESS)
+    {
+        if (enable_value)
+        {
+            /* Enable signal level change indication via +CIEV URC.*/
+            (void)snprintf(cmdBuf, CELLULAR_AT_CMD_TYPICAL_MAX_SIZE, "AT+UCIND=2");
+            pktStatus = _Cellular_AtcmdRequestWithCallback(pContext, atReqControlSignalStrengthIndication);
+        }
+        else
+        {
+            /* Disable signal level change indication via +CIEV URC.*/
+            (void)snprintf(cmdBuf, CELLULAR_AT_CMD_TYPICAL_MAX_SIZE, "AT+UCIND=0");
+            pktStatus = _Cellular_AtcmdRequestWithCallback(pContext, atReqControlSignalStrengthIndication);
+        }
+
+        cellularStatus = _Cellular_TranslatePktStatus(pktStatus);
+    }
+
+    return cellularStatus;
 }
 
 /*-----------------------------------------------------------*/
@@ -1259,9 +2205,29 @@ CellularError_t Cellular_SetDns( CellularHandle_t cellularHandle,
 /* Cellular HAL API. */
 /* coverity[misra_c_2012_rule_8_7_violation] */
 CellularError_t Cellular_RegisterUrcSignalStrengthChangedCallback( CellularHandle_t cellularHandle,
-                                                                   CellularUrcSignalStrengthChangedCallback_t signalStrengthChangedCallback )
+                                                                   CellularUrcSignalStrengthChangedCallback_t signalStrengthChangedCallback,
+                                                                   void* pCallbackContext )
 {
-    return CELLULAR_UNSUPPORTED;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularContext_t* pContext = (CellularContext_t*)cellularHandle;
+
+    /* pContext is checked in the common library. */
+    cellularStatus = Cellular_CommonRegisterUrcSignalStrengthChangedCallback(
+        cellularHandle, signalStrengthChangedCallback, pCallbackContext);
+
+    if (cellularStatus == CELLULAR_SUCCESS)
+    {
+        if (signalStrengthChangedCallback != NULL)
+        {
+            cellularStatus = controlSignalStrengthIndication(pContext, true);
+        }
+        else
+        {
+            cellularStatus = controlSignalStrengthIndication(pContext, false);
+        }
+    }
+
+    return cellularStatus;
 }
 
 /*-----------------------------------------------------------*/
@@ -1383,10 +2349,11 @@ CellularError_t Cellular_GetHostByName( CellularHandle_t cellularHandle,
 
     if( cellularStatus != CELLULAR_SUCCESS )
     {
-        IotLogDebug("_Cellular_CheckLibraryStatus failed");
+        IotLogDebug("Cellular_GetHostByName: _Cellular_CheckLibraryStatus failed");
     }
     else if( (pcHostName == NULL) || (pResolvedAddress == NULL) )
     {
+        IotLogError("Cellular_GetHostByName: Bad input Parameter ");
         cellularStatus = CELLULAR_BAD_PARAMETER;
     }
 
@@ -1395,7 +2362,7 @@ CellularError_t Cellular_GetHostByName( CellularHandle_t cellularHandle,
         (void)snprintf( cmdBuf, CELLULAR_AT_CMD_MAX_SIZE,
                         "AT+UDNSRN=0,\"%s\"", pcHostName );
 
-        pktStatus = _Cellular_AtcmdRequestWithCallback(pContext, atReqQueryDns);
+        pktStatus = _Cellular_TimeoutAtcmdRequestWithCallback(pContext, atReqQueryDns, DNS_QUERY_REQ_TIMEOUT_MS);
 
         if (pktStatus != CELLULAR_PKT_STATUS_OK)
         {
@@ -1581,7 +2548,7 @@ CellularError_t Cellular_SetPdnConfig( CellularHandle_t cellularHandle,
 
     if (pPdnConfig == NULL)
     {
-        IotLogDebug("Cellular_CommonSetPdnConfig: Input parameter is NULL");
+        IotLogDebug("Cellular_SetPdnConfig: Input parameter is NULL");
         cellularStatus = CELLULAR_BAD_PARAMETER;
     }
     else
@@ -1601,7 +2568,7 @@ CellularError_t Cellular_SetPdnConfig( CellularHandle_t cellularHandle,
             break;
 
         default:
-            IotLogDebug("Cellular_CommonSetPdnConfig: Invalid pdn context type %d",
+            IotLogDebug("Cellular_SetPdnConfig: Invalid pdn context type %d",
                 CELLULAR_PDN_CONTEXT_IPV4V6);
             cellularStatus = CELLULAR_BAD_PARAMETER;
             break;
@@ -1640,16 +2607,14 @@ CellularError_t Cellular_SetPdnConfig( CellularHandle_t cellularHandle,
 
         if (cellularStatus == CELLULAR_SUCCESS)
         {
-            IotLogDebug("Cellular_CommonSetPdnConfig() - Parse complete, listing contexts below.");
+            IotLogDebug("Cellular_SetPdnConfig: Listing operator and context details below.");
             for (int i = 0; i < MAX_PDP_CONTEXTS - 1; i++)
             {
                 // Print only those contexts that are present in +CGDCONT response
                 if (pdpContextsInfo.contextsPresent[i])
                 {
-                    IotLogDebug("\t Context %d\r\n", i + 1);
-                    IotLogDebug("\t\t IP Type    :\t\t %s", pdpContextsInfo.ipType[i]);
-                    IotLogDebug("\t\t APN Name   :\t\t %s", pdpContextsInfo.apnName[i]);
-                    IotLogDebug("\t\t IP Address :\t\t %s", pdpContextsInfo.ipAddress[i]);
+                    IotLogDebug("Context [%d], IP Type [%s], APN Name [%s], IP Address [%s]\r\n", i + 1, 
+                    			pdpContextsInfo.ipType[i], pdpContextsInfo.apnName, pdpContextsInfo.ipAddress);
                 }
             }
         }
@@ -1667,11 +2632,11 @@ CellularError_t Cellular_SetPdnConfig( CellularHandle_t cellularHandle,
         {
             if (strcmp(pdpContextsInfo.ipType[contextId - 1], pPdpTypeStr) != 0)
             {
-                IotLogInfo("Cellular_CommonSetPdnConfig: Setting new IPv (Module IPv:%s != %s)\r\n", pdpContextsInfo.ipType[contextId - 1], pPdpTypeStr);
+                IotLogInfo("Cellular_SetPdnConfig: Setting new IPv (Module IPv:%s != %s)\r\n", pdpContextsInfo.ipType[contextId - 1], pPdpTypeStr);
             }
             if (strstr(pdpContextsInfo.apnName[contextId - 1], pPdnConfig->apnName) == NULL)
             {
-                IotLogInfo("Cellular_CommonSetPdnConfig: Setting new APN (Module APN:%s != %s)\r\n", pdpContextsInfo.apnName[contextId - 1], pPdnConfig->apnName);
+                IotLogInfo("Cellular_SetPdnConfig: Setting new APN (Module APN:%s != %s)\r\n", pdpContextsInfo.apnName[contextId - 1], pPdnConfig->apnName);
             }
 
             // TODO: Add support if + UAUTHREQ is PAP / CHAP
@@ -1691,13 +2656,13 @@ CellularError_t Cellular_SetPdnConfig( CellularHandle_t cellularHandle,
 
             if (pktStatus != CELLULAR_PKT_STATUS_OK)
             {
-                IotLogError("Cellular_CommonSetPdnConfig: can't set PDN, cmdBuf:%s, PktRet: %d", cmdBuf, pktStatus);
+                IotLogError("Cellular_SetPdnConfig: can't set PDN, cmdBuf:%s, PktRet: %d", cmdBuf, pktStatus);
                 cellularStatus = _Cellular_TranslatePktStatus(pktStatus);
             }
         }
         else
         {
-            IotLogInfo("Cellular_CommonSetPdnConfig: APN and IPv already set.\r\n");
+            IotLogInfo("Cellular_SetPdnConfig: APN and IPv already set.\r\n");
         }
     }
 
@@ -1706,3 +2671,68 @@ CellularError_t Cellular_SetPdnConfig( CellularHandle_t cellularHandle,
 
 /*-----------------------------------------------------------*/
 
+/* Cellular HAL API. */
+/* coverity[misra_c_2012_rule_8_7_violation] */
+CellularError_t Cellular_SetPsmSettings(CellularHandle_t cellularHandle,
+                                        const CellularPsmSettings_t* pPsmSettings)
+{
+    CellularContext_t* pContext = (CellularContext_t*)cellularHandle;
+    CellularError_t cellularStatus = CELLULAR_SUCCESS;
+    CellularPktStatus_t pktStatus = CELLULAR_PKT_STATUS_OK;
+    char cmdBuf[CELLULAR_AT_CMD_MAX_SIZE] = { '\0' };
+
+    CellularAtReq_t atReqSetPsm =
+    {
+        cmdBuf,
+        CELLULAR_AT_NO_RESULT,
+        NULL,
+        NULL,
+        NULL,
+        0
+    };
+
+    cellularStatus = _Cellular_CheckLibraryStatus(pContext);
+
+    if (cellularStatus != CELLULAR_SUCCESS)
+    {
+        IotLogError("Cellular_SetPsmSettings: _Cellular_CheckLibraryStatus failed");
+    }
+    else if (pPsmSettings == NULL)
+    {
+        IotLogError("Cellular_SetPsmSettings : Bad parameter");
+        cellularStatus = CELLULAR_BAD_PARAMETER;
+    }
+    else
+    {
+        if (pPsmSettings->mode)
+        {
+            /* SARA-R4: To change the command setting issue AT+COPS=2 or AT+CFUN=0 to deregister the module from
+                network, issue the +CPSMS command and reboot the module in order to apply the new configuration. */
+			/* After PSM mode active, press "PWR_ON" key to awake modem. */
+            (void)snprintf(cmdBuf, CELLULAR_AT_CMD_MAX_SIZE, "AT+CFUN=0");
+            pktStatus = _Cellular_AtcmdRequestWithCallback(pContext, atReqSetPsm);
+
+            if (pktStatus == CELLULAR_PKT_STATUS_OK)
+            {
+                cellularStatus = Cellular_CommonSetPsmSettings(cellularHandle, pPsmSettings);
+
+                if (cellularStatus == CELLULAR_SUCCESS)
+                {
+                    cellularStatus = rebootCellularModem(pContext, false);
+                }
+                else
+                {
+                    IotLogError("Cellular_SetPsmSettings: Unable to set PSM settings.");
+                }
+            }
+        }
+        else
+        {
+            cellularStatus = Cellular_CommonSetPsmSettings(cellularHandle, pPsmSettings);
+        }
+    }
+
+    return cellularStatus;
+}
+
+/*-----------------------------------------------------------*/

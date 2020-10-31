@@ -2985,6 +2985,21 @@ static CellularPktStatus_t _Cellular_RecvFuncGetPsmSettings( CellularContext_t *
     else
     {
         pInputLine = pAtResp->pItm->pLine;
+		
+		/* 
+		Some params of +CPSMS response could be empty e.g. +CPSMS:0,"01100000","00000000",,"00001110".
+	    Applying Cellular_ATGetNextTok to such string will result in skipping of empty tokens e.g. 
+	    4 tokens instead of 5 tokens will be parsed with wrong tokenIndex as shown below:
+		   
+	    1080 15806 [iot_thread] [INFO ][CELLULAR][15806] _Cellular_RecvFuncGetPsmSettings: pToken 0 index 0
+	    1081 15806 [iot_thread] [INFO ][CELLULAR][15806] _Cellular_RecvFuncGetPsmSettings: pToken 01100000 index 1
+	    1082 15806 [iot_thread] [INFO ][CELLULAR][15806] _Cellular_RecvFuncGetPsmSettings: pToken 00000000 index 2
+	    1084 15806 [iot_thread] [INFO ][CELLULAR][15806] _Cellular_RecvFuncGetPsmSettings: pToken 00001110 index 3
+	    1085 15806 [iot_thread] [DEBUG][CELLULAR][15806] PSM setting: mode: 0, RAU: 0, RDY_Timer: 0, TAU: 8400, Active_time: 0 
+		
+		To avoid this issue, parsing without Cellular_ATGetNextTok is recommended.
+		*/
+		
         pPsmSettings = ( CellularPsmSettings_t * ) pData;
         atCoreStatus = Cellular_ATRemovePrefix( &pInputLine );
 

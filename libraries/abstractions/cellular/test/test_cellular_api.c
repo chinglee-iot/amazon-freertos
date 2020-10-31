@@ -840,19 +840,6 @@ TEST_SETUP( Full_CELLULAR_API )
         configPRINTF( ( " SIM Status: \r\n SIM Lock: \r\n" ) );
     }
 
-    xCellularStatus = Cellular_GetSignalInfo( _cellularHandle, &signalInfo );
-
-    if( xCellularStatus == CELLULAR_SUCCESS )
-    {
-        configPRINTF(
-            ( " Signal Bars: %d \r\n Signal RSSI: %d \r\n Signal RSRP: %d \r\n Signal RSRQ: %d \r\n", signalInfo.bars, signalInfo.rssi, signalInfo.rsrp, signalInfo.rsrq ) );
-    }
-    else
-    {
-        configPRINTF(
-            ( " Signal Bars: \r\n Signal RSSI: \r\n Signal RSRP: \r\n Signal RSRQ: \r\n", signalInfo.bars, signalInfo.rssi, signalInfo.rsrp, signalInfo.rsrq ) );
-    }
-
     xCellularStatus = Cellular_GetServiceStatus( _cellularHandle, &serviceStatus );
 
     if( xCellularStatus == CELLULAR_SUCCESS )
@@ -876,12 +863,26 @@ TEST_SETUP( Full_CELLULAR_API )
         configPRINTF( ( " Network: \r\n" ) );
     }
 
+    /* Cellular_GetSignalInfo should be called after Cellular_GetServiceStatus to set libAtData.rat to get correct bar level. */
+    xCellularStatus = Cellular_GetSignalInfo(_cellularHandle, &signalInfo);
+
+    if (xCellularStatus == CELLULAR_SUCCESS)
+    {
+        configPRINTF(
+            (" Signal Bars: %d \r\n Signal RSSI: %d \r\n Signal RSRP: %d \r\n Signal RSRQ: %d \r\n", signalInfo.bars, signalInfo.rssi, signalInfo.rsrp, signalInfo.rsrq));
+    }
+    else
+    {
+        configPRINTF(
+            (" Signal Bars: \r\n Signal RSSI: \r\n Signal RSRP: \r\n Signal RSRQ: \r\n", signalInfo.bars, signalInfo.rssi, signalInfo.rsrp, signalInfo.rsrq));
+    }
+
     xCellularStatus = Cellular_GetNetworkTime( _cellularHandle, &networkTime );
 
     if( xCellularStatus == CELLULAR_SUCCESS )
     {
         configPRINTF(
-            ( " Network time: %d/%d/%d %d:%d:%d \r\n", networkTime.month, networkTime.day, networkTime.year, networkTime.hour, networkTime.minute, networkTime.second ) );
+            ( " Network time: %d/%d/%d %d:%d:%d \r\n", networkTime.day, networkTime.month, networkTime.year, networkTime.hour, networkTime.minute, networkTime.second ) );
     }
     else
     {
@@ -1599,8 +1600,11 @@ TEST( Full_CELLULAR_API, AFQP_Cellular_AirplaneMode )
         }
 
         configPRINTF( ( "serviceStatus.psRegistrationStatus %d\r\n", serviceStatus.psRegistrationStatus ) );
-        TEST_ASSERT_MESSAGE( serviceStatus.psRegistrationStatus == CELLULAR_NETWORK_REGISTRATION_STATUS_NOT_REGISTERED_NOT_SEARCHING,
-                             "Airplane mode network registration check failed" );
+        
+        /* Add also psRegistrationStatus=4 if +CGREG: 2,0 and +CEREG: 2,4 */
+        TEST_ASSERT_MESSAGE((serviceStatus.psRegistrationStatus == CELLULAR_NETWORK_REGISTRATION_STATUS_NOT_REGISTERED_NOT_SEARCHING) ||
+                            (serviceStatus.psRegistrationStatus == CELLULAR_NETWORK_REGISTRATION_STATUS_UNKNOWN),
+                             "Airplane mode network registration check failed");
 
         /* RF On. */
         xCellularStatus = Cellular_RfOn( _cellularHandle );
@@ -1654,13 +1658,20 @@ TEST( Full_CELLULAR_API, AFQP_Cellular_Deactivate )
     {
         /* Deactivate PDN and verify. */
         xCellularStatus = Cellular_DeactivatePdn( _cellularHandle, testCELLULAR_PDN_CONTEXT_ID );
-        TEST_CELLULAR_ASSERT_REQUIRED_API( CELLULAR_SUCCESS == xCellularStatus, xCellularStatus );
 
-        xCellularStatus = Cellular_GetPdnStatus( _cellularHandle, &pdnStatusBuffers, testCELLULAR_PDN_CONTEXT_ID, &numStatus );
-        TEST_CELLULAR_ASSERT_REQUIRED_API( CELLULAR_SUCCESS == xCellularStatus, xCellularStatus );
+        /* Check also if in LTE network, modem allows default bearer context to be deactivated. 
+           Added new definition of CELLULAR_NOT_ALLOWED in typedef CellularError_t. */
+        TEST_CELLULAR_ASSERT_REQUIRED_API( ( CELLULAR_SUCCESS == xCellularStatus ) || 
+		                                   ( CELLULAR_NOT_ALLOWED == xCellularStatus ), xCellularStatus );
 
-        TEST_ASSERT_MESSAGE( ( numStatus == 0 ) ||
-                             ( ( numStatus == 1 ) && ( pdnStatusBuffers.state == 0 ) ), "Deactive PDN should return 0" );
+        if( xCellularStatus != CELLULAR_NOT_ALLOWED )
+        {
+            xCellularStatus = Cellular_GetPdnStatus( _cellularHandle, &pdnStatusBuffers, testCELLULAR_PDN_CONTEXT_ID, &numStatus );
+            TEST_CELLULAR_ASSERT_REQUIRED_API( CELLULAR_SUCCESS == xCellularStatus, xCellularStatus );
+
+            TEST_ASSERT_MESSAGE( ( numStatus == 0 ) ||
+                                 ( ( numStatus == 1 ) && ( pdnStatusBuffers.state == 0 ) ), "Deactive PDN should return 0" );
+        }
     }
     else
     {
