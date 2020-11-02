@@ -503,7 +503,16 @@ CellularATError_t Cellular_ATGetSpecificNextTok( char ** ppString,
     if( atStatus == CELLULAR_AT_SUCCESS )
     {
         dataStrlen = ( uint16_t ) strlen( *ppString );
-        tok = strtok( *ppString, pDelimiter );
+
+        if( ( **ppString ) == ( *pDelimiter ) )
+        {
+            **ppString = '\0';
+            tok = *ppString;
+        }
+        else
+        {
+            tok = strtok( *ppString, pDelimiter );
+        }
 
         if( tok == NULL )
         {
