@@ -388,6 +388,20 @@ target_link_libraries(
 # -------------------------------------------------------------------------------------------------
 afr_glob_src(config_files DIRECTORY "${board_dir}/config_files")
 
+if( NOT AFR_IS_TESTING )
+set( FREEMATIC_PLUS_SOURCES
+    "${board_dir}/application_code/FreematicsPlus/FreematicsGPS.cpp"
+    "${board_dir}/application_code/FreematicsPlus/FreematicsMEMS.cpp"
+    "${board_dir}/application_code/FreematicsPlus/FreematicsOBD.cpp"
+    "${board_dir}/application_code/FreematicsPlus/FreematicsPlus.cpp"
+)
+
+set( FREEMATIC_PLUS_INCLUDES
+    "${board_dir}/application_code/FreematicsPlus"
+    "${board_dir}/application_code/FreematicsPlus/utility"
+)
+endif()
+
 # Do not add demos or tests if they're turned off.
 if(AFR_ENABLE_DEMOS OR AFR_ENABLE_TESTS)
     add_executable(
@@ -395,12 +409,14 @@ if(AFR_ENABLE_DEMOS OR AFR_ENABLE_TESTS)
         "${board_dir}/application_code/main.c"
         "${board_dir}/application_code/arduino_main.cpp"
         ${extra_exe_sources}
+        ${FREEMATIC_PLUS_SOURCES}
     )
     target_include_directories(
         ${exe_target}
         PUBLIC
             $<TARGET_PROPERTY:AFR::kernel,INTERFACE_INCLUDE_DIRECTORIES>
             $<TARGET_PROPERTY:AFR::ble_hal::mcu_port,INTERFACE_INCLUDE_DIRECTORIES>
+            ${FREEMATIC_PLUS_INCLUDES}
     )
     target_link_libraries(
         ${exe_target}
