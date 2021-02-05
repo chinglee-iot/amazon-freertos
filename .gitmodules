@@ -56,3 +56,6 @@
 [submodule "tools/litani"]
 	path = tools/litani
 	url = https://github.com/awslabs/aws-build-accumulator
+[submodule "vendors/espressif/boards/esp32/components/arduino"]
+	path = vendors/espressif/boards/esp32/components/arduino
+	url = https://github.com/chinglee-iot/arduino-esp32

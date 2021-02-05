@@ -393,6 +393,7 @@ if(AFR_ENABLE_DEMOS OR AFR_ENABLE_TESTS)
     add_executable(
         ${exe_target}
         "${board_dir}/application_code/main.c"
+        "${board_dir}/application_code/arduino_main.cpp"
         ${extra_exe_sources}
     )
     target_include_directories(
@@ -543,7 +544,7 @@ add_custom_target(monitor
     DEPENDS "${IDF_PROJECT_EXECUTABLE}"
     COMMAND ${CMAKE_COMMAND}
     -D IDF_PATH="${esp_idf_dir}"
-    -D PROJECT_ELF="${IDF_PROJECT_EXECUTABLE}"
+    -D PROJECT_ELF="${IDF_PROJECT_EXECUTABLE}.elf"
     -D ELF_DIR="${CMAKE_BINARY_DIR}"
     -P run_idf_monitor.cmake
     WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
