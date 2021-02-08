@@ -441,6 +441,88 @@ static MQTTFixedBuffer_t xBuffer =
 
 /*-----------------------------------------------------------*/
 
+MQTTContext_t gMQTTContext = { 0 };
+NetworkContext_t gNetworkContext = { 0 };
+
+BaseType_t publishMqtt( MQTTContext_t * pxMQTTContext, 
+                        char *pTopic,
+                        uint16_t topicLength,
+                        uint8_t *pMsg,
+                        uint32_t msgLength)
+{
+    MQTTStatus_t xResult;
+    MQTTPublishInfo_t xMQTTPublishInfo;
+    BaseType_t xStatus = pdPASS;
+
+    /* Some fields are not used by this demo so start with everything at 0. */
+    ( void ) memset( ( void * ) &xMQTTPublishInfo, 0x00, sizeof( xMQTTPublishInfo ) );
+
+    /* This demo uses QoS1. */
+    xMQTTPublishInfo.qos = MQTTQoS1;
+    xMQTTPublishInfo.retain = false;
+    xMQTTPublishInfo.pTopicName = pTopic;
+    xMQTTPublishInfo.topicNameLength = ( uint16_t ) strlen( pTopic );
+    xMQTTPublishInfo.pPayload = pMsg;
+    xMQTTPublishInfo.payloadLength = msgLength;
+
+    /* Get a unique packet id. */
+    usPublishPacketIdentifier = MQTT_GetPacketId( pxMQTTContext );
+
+    /* Send PUBLISH packet. Packet ID is not used for a QoS1 publish. */
+    xResult = MQTT_Publish( pxMQTTContext, &xMQTTPublishInfo, usPublishPacketIdentifier );
+
+    if( xResult != MQTTSuccess )
+    {
+        xStatus = pdFAIL;
+        LogError( ( "Failed to send PUBLISH message to broker: Topic=%s, Error=%s",
+                    mqttexampleTOPIC,
+                    MQTT_Status_strerror( xResult ) ) );
+    }
+    
+    xResult = MQTT_ProcessLoop( pxMQTTContext, mqttexamplePROCESS_LOOP_TIMEOUT_MS );
+
+
+    return xStatus;
+}
+
+MQTTContext_t *setupMqttConnection( void )
+{
+    uint32_t ulPublishCount = 0U, ulTopicCount = 0U;
+    const uint32_t ulMaxPublishCount = 5UL;
+    MQTTStatus_t xMQTTStatus;
+    uint32_t ulDemoRunCount = 0UL, ulDemoSuccessCount = 0UL;
+    TransportSocketStatus_t xNetworkStatus;
+    BaseType_t xIsConnectionEstablished = pdFALSE;
+
+    /* Upon return, pdPASS will indicate a successful demo execution.
+    * pdFAIL will indicate some failures occurred during execution. The
+    * user of this demo must check the logs for any failure codes. */
+    BaseType_t xDemoStatus = pdFAIL;
+
+    /****************************** Connect. ******************************/
+
+    /* Attempt to establish TLS session with MQTT broker. If connection fails,
+     * retry after a timeout. Timeout value will be exponentially increased until
+     * the maximum number of attempts are reached or the maximum timeout value is reached.
+     * The function returns a failure status if the TLS over TCP connection cannot be established
+     * to the broker after the configured number of attempts. */
+    xDemoStatus = prvConnectToServerWithBackoffRetries( &gNetworkContext );
+
+    if( xDemoStatus == pdPASS )
+    {
+        /* Set a flag indicating a TLS connection exists. This is done to
+         * disconnect if the loop exits before disconnection happens. */
+        xIsConnectionEstablished = pdTRUE;
+
+        /* Sends an MQTT Connect packet over the already established TLS connection,
+         * and waits for connection acknowledgment (CONNACK) packet. */
+        LogInfo( ( "Creating an MQTT connection to %s.", democonfigMQTT_BROKER_ENDPOINT ) );
+        xDemoStatus = prvCreateMQTTConnectionWithBroker( &gMQTTContext, &gNetworkContext );
+    }
+    
+    return &gMQTTContext;
+}
+
 /*
  * @brief The example shown below uses MQTT APIs to create MQTT messages and
  * send them over the mutually authenticated network connection established with the

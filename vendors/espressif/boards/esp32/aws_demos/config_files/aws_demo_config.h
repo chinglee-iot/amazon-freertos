@@ -45,10 +45,11 @@
  *          CONFIG_MQTT_BLE_TRANSPORT_DEMO_ENABLED
  *          CONFIG_SHADOW_BLE_TRANSPORT_DEMO_ENABLED
  *          CONFIG_CLI_UART_DEMO_ENABLED
+ *          CONFIG_OBD_DEMO_ENABLED
  *
  *  These defines are used in iot_demo_runner.h for demo selection */
 
-#define CONFIG_CORE_MQTT_MUTUAL_AUTH_DEMO_ENABLED
+#define CONFIG_OBD_DEMO_ENABLED
 
 /* Default configuration for all demos. Individual demos can override these below */
 #define democonfigDEMO_STACKSIZE    ( configMINIMAL_STACK_SIZE * 8 )
