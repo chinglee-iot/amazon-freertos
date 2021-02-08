@@ -30,7 +30,7 @@ void loop() {
       Serial.println("OK");
       connected = true;
     } else {
-      Serial.println();
+      Serial.println("Not connected, retry");
     }
     digitalWrite(PIN_LED, LOW);
     return;
@@ -74,5 +74,8 @@ extern "C" void arduino_main( void )
     Serial.print("Arduino start\r\n");
     
     setup();
-    loop();
+    while(1)
+    {
+        loop();
+    }
 }

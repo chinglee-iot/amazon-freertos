@@ -158,11 +158,7 @@ int app_main( void )
         /* Run all demos. */
         // DEMO_RUNNER_RunDemos();
 
-        while( 1 )
-        {
-            arduino_main();
-            vTaskDelay( pdMS_TO_TICKS( 1000 ) );
-        }
+        arduino_main();
     }
 
     /* Start the scheduler.  Initialization that requires the OS to be running,
