@@ -13,6 +13,8 @@
 #include "core_mqtt.h"
 
 #include "obd_data.h"
+#include "FreeRTOS_IO.h"
+#include "obd_data.h"
 
 /* The OBD data collect interval time. */
 #define OBD_DATA_COLLECT_INTERVAL_MS        ( 500 )
@@ -40,6 +42,7 @@ typedef struct obdContext
     ObdTelemetryDataType_t telemetryIndex;
     char topicBuf[OBD_TOPIC_BUF_SIZE];
     char messageBuf[OBD_MESSAGE_BUF_SIZE];
+    Peripheral_Descriptor_t obdDevice;
 }obdContext_t;
 
 static obdContext_t gObdContext =
@@ -223,6 +226,15 @@ int RunOBDDemo( bool awsIotMqttMode,
 
     /* Setup the mqtt connection. */
     gObdContext.pMqttContext = setupMqttConnection();
+
+    /* Open the OBD devices. */
+    configPRINTF(("Start obd device\r\n"));
+    gObdContext.obdDevice = FreeRTOS_open("/dev/obd", 0 );
+    FreeRTOS_read( gObdContext.obdDevice, NULL, 0 );
+    FreeRTOS_write( gObdContext.obdDevice, NULL, 0 );
+    FreeRTOS_ioctl( gObdContext.obdDevice, NULL, 0 );
+
+    /* Open the GPS devices. */
 
     /* Main thread runs in send data loop. */
     while(1)

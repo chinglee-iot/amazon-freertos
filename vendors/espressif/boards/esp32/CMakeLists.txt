@@ -400,6 +400,16 @@ set( FREEMATIC_PLUS_INCLUDES
     "${board_dir}/application_code/FreematicsPlus"
     "${board_dir}/application_code/FreematicsPlus/utility"
 )
+
+set( FREERTOS_PLUS_IO_SOURCES 
+    "${board_dir}/application_code/freertos_plus_io/FreeRTOS_DriverInterface.c"
+    "${board_dir}/application_code/freertos_plus_io/obd_device.c"
+)
+
+set( FREERTOS_PLUS_IO_INCLUDES
+    "${board_dir}/application_code/freertos_plus_io"
+)
+
 endif()
 
 # Do not add demos or tests if they're turned off.
@@ -410,6 +420,7 @@ if(AFR_ENABLE_DEMOS OR AFR_ENABLE_TESTS)
         "${board_dir}/application_code/arduino_main.cpp"
         ${extra_exe_sources}
         ${FREEMATIC_PLUS_SOURCES}
+        ${FREERTOS_PLUS_IO_SOURCES}
     )
     target_include_directories(
         ${exe_target}
@@ -417,6 +428,7 @@ if(AFR_ENABLE_DEMOS OR AFR_ENABLE_TESTS)
             $<TARGET_PROPERTY:AFR::kernel,INTERFACE_INCLUDE_DIRECTORIES>
             $<TARGET_PROPERTY:AFR::ble_hal::mcu_port,INTERFACE_INCLUDE_DIRECTORIES>
             ${FREEMATIC_PLUS_INCLUDES}
+            ${FREERTOS_PLUS_IO_INCLUDES}
     )
     target_link_libraries(
         ${exe_target}
