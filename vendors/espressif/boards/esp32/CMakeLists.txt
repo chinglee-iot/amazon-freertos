@@ -403,7 +403,7 @@ set( FREEMATIC_PLUS_INCLUDES
 
 set( FREERTOS_PLUS_IO_SOURCES 
     "${board_dir}/application_code/freertos_plus_io/FreeRTOS_DriverInterface.c"
-    "${board_dir}/application_code/freertos_plus_io/obd_device.c"
+    "${board_dir}/application_code/freertos_plus_io/obd_device.cpp"
 )
 
 set( FREERTOS_PLUS_IO_INCLUDES

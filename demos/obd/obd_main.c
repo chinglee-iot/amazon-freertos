@@ -14,14 +14,14 @@
 
 #include "obd_data.h"
 #include "FreeRTOS_IO.h"
-#include "obd_data.h"
+#include "obd_device.h"
 
 /* The OBD data collect interval time. */
-#define OBD_DATA_COLLECT_INTERVAL_MS        ( 500 )
+#define OBD_DATA_COLLECT_INTERVAL_MS        ( 1000 )
 
 #define OBD_AGGREGATED_DATA_INTERVAL_MS     ( 90000 )
 #define OBD_TELEMETRY_DATA_INTERVAL_MS      ( 2000 )
-#define OBD_LOCATION_DATA_INTERVAL_MS       ( 2000 )
+#define OBD_LOCATION_DATA_INTERVAL_MS       ( 5000 )
 
 #define OBD_MESSAGE_BUF_SIZE                ( 256 )
 #define OBD_TOPIC_BUF_SIZE                  ( 64 )
@@ -111,7 +111,7 @@ static const char OBD_DATA_DTC_FORMAT[] =
     \"trip_id\": \"%s\",\r\n\
     \"vin\": \"%s\",\r\n\
     \"name\": \"%s\",\r\n\
-    \"value\": \"%s\"\r\n\
+    \"value\": \"%04x\"\r\n\
 }";
 
 static const char OBD_DATA_IGNITION_TOPIC[] = "connectedcar/ignition/%s";
@@ -152,20 +152,27 @@ extern MQTTContext_t *setupMqttConnection( void );
 
 static void checkObdDtcData( obdContext_t *pObdContext )
 {
-    snprintf( pObdContext->topicBuf, OBD_TOPIC_BUF_SIZE, OBD_DATA_DTC_TOPIC, pObdContext->vin );
-    snprintf( pObdContext->messageBuf, OBD_MESSAGE_BUF_SIZE, OBD_DATA_DTC_FORMAT,
-        "1970-02-03 02:59:37.401000000",
-        pObdContext->tripId,
-        pObdContext->vin,
-        "dtc",
-        "Error code"
-    );
-    publishMqtt( pObdContext->pMqttContext, 
-        pObdContext->topicBuf,
-        0,
-        pObdContext->messageBuf,
-        strlen( pObdContext->messageBuf ) 
-    );
+    ObdDtcData_t obdData = { 0 };
+    uint32_t i = 0;
+
+    FreeRTOS_ioctl( gObdContext.obdDevice, ioctlOBD_READ_DTC, &obdData );
+    for( i = 0; i < obdData.dtcCount; i++ )
+    {
+        snprintf( pObdContext->topicBuf, OBD_TOPIC_BUF_SIZE, OBD_DATA_DTC_TOPIC, pObdContext->vin );
+        snprintf( pObdContext->messageBuf, OBD_MESSAGE_BUF_SIZE, OBD_DATA_DTC_FORMAT,
+            "1970-02-03 02:59:37.401000000",
+            pObdContext->tripId,
+            pObdContext->vin,
+            "dtc",
+            obdData.dtc[i]
+        );
+        publishMqtt( pObdContext->pMqttContext,
+            pObdContext->topicBuf,
+            0,
+            pObdContext->messageBuf,
+            strlen( pObdContext->messageBuf )
+        );
+    }
 }
 
 static void sendObdLocationData( obdContext_t *pObdContext )
@@ -189,6 +196,9 @@ static void sendObdLocationData( obdContext_t *pObdContext )
 
 static void sendObdTelemetryData( obdContext_t *pObdContext )
 {
+    int32_t pidValue = 0;
+    bool valueSupported = true;
+
     snprintf( pObdContext->topicBuf, OBD_TOPIC_BUF_SIZE, OBD_DATA_TELEMETRY_TOPIC, pObdContext->vin );
     snprintf( pObdContext->messageBuf, OBD_MESSAGE_BUF_SIZE, OBD_DATA_TELEMETRY_FORMAT_START,
         "1970-02-03 02:59:37.401000000",
@@ -197,18 +207,43 @@ static void sendObdTelemetryData( obdContext_t *pObdContext )
         OBD_DATA_TELEMETRY_NAME_ARRAY[pObdContext->telemetryIndex]
     );
 
-    snprintf( pObdContext->messageBuf, OBD_MESSAGE_BUF_SIZE, "%s%d%s",
+    switch( pObdContext->telemetryIndex )
+    {
+        case OBD_TELEMETRY_TYPE_OIL_TEMP:
+            FreeRTOS_ioctl( gObdContext.obdDevice, ioctlOBD_READ_PID_ENGINE_OIL_TEMP, &pidValue );
+            break;
+        case OBD_TELEMETRY_TYPE_ENGINE_SPEED:
+            FreeRTOS_ioctl( gObdContext.obdDevice, ioctlOBD_READ_PID_RPM, &pidValue );
+            break;
+        case OBD_TELEMETRY_TYPE_VEHICLE_SPEED:
+            FreeRTOS_ioctl( gObdContext.obdDevice, ioctlOBD_READ_PID_SPEED, &pidValue );
+            break;
+        case OBD_TELEMETRY_TYPE_FUEL_LEVEL:
+            FreeRTOS_ioctl( gObdContext.obdDevice, ioctlOBD_READ_PID_FUEL_LEVEL, &pidValue );
+            break;
+        default:
+            valueSupported = false;
+            break;
+    }
+    snprintf( pObdContext->messageBuf, OBD_MESSAGE_BUF_SIZE, "%s%d",
         pObdContext->messageBuf,
-        12,
+        pidValue
+    );
+
+    snprintf( pObdContext->messageBuf, OBD_MESSAGE_BUF_SIZE, "%s%s",
+        pObdContext->messageBuf,
         OBD_DATA_TELEMETRY_FORMAT_END
     );
 
-    publishMqtt( pObdContext->pMqttContext, 
-        pObdContext->topicBuf,
-        0,
-        pObdContext->messageBuf,
-        strlen( pObdContext->messageBuf ) 
-    );
+    if( valueSupported == true )
+    {
+        publishMqtt( pObdContext->pMqttContext,
+            pObdContext->topicBuf,
+            0,
+            pObdContext->messageBuf,
+            strlen( pObdContext->messageBuf )
+        );
+    }
     pObdContext->telemetryIndex = ( pObdContext->telemetryIndex + 1 ) % OBD_TELEMETRY_TYPE_MAX;
 }
 
@@ -230,9 +265,6 @@ int RunOBDDemo( bool awsIotMqttMode,
     /* Open the OBD devices. */
     configPRINTF(("Start obd device\r\n"));
     gObdContext.obdDevice = FreeRTOS_open("/dev/obd", 0 );
-    FreeRTOS_read( gObdContext.obdDevice, NULL, 0 );
-    FreeRTOS_write( gObdContext.obdDevice, NULL, 0 );
-    FreeRTOS_ioctl( gObdContext.obdDevice, NULL, 0 );
 
     /* Open the GPS devices. */
 
@@ -241,7 +273,7 @@ int RunOBDDemo( bool awsIotMqttMode,
     {
         /* Check the DTC events. */
         checkObdDtcData( &gObdContext );
-        
+
         /* Cehck the Location data events. */
         if( ( loopSteps % OBD_LOCATION_DATA_INTERVAL_STEPS ) == 0 )
         {
