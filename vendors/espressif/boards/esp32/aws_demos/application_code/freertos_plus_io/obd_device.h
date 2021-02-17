@@ -3,8 +3,6 @@
 
 #include "FreeRTOS_DriverInterface.h"
 
-#define IOCTL_OBD_DEVICE_RPM
-
 /* Define the ioctl of OBD devices. */
 extern Peripheral_device_t gObdDevice;
 
@@ -61,15 +59,51 @@ extern Peripheral_device_t gObdDevice;
 #define ioctlOBD_READ_PID_ENGINE_TORQUE_PERCENTAGE 0x62
 #define ioctlOBD_READ_PID_ENGINE_REF_TORQUE 0x63
 
+#define ioctlOBD_READ_PID_TRANSMISSION_ACTUAL_GEAR  0xA4    /* TODO: Add normalizeData case. */
 
+#define ioctlOBD_READ_PID_ODOMETER                  0xA6    /* TODO: Add normalizeData case. */
+
+#define ioctlOBD_READ_VIN       0x08000000
+#define OBD_VIN_BUFFER_LENGTH       16
+typedef struct ObdVinBuffer
+{
+    char vinBuffer[ OBD_VIN_BUFFER_LENGTH ];
+} ObdVinBuffer_t;
+
+/* DTC code related ioctl starts from 0x10000000. */
 #define ioctlOBD_READ_DTC       0x10000000
 #define ioctlOBD_CLEAR_DTC      0x10000001
 #define MAX_DTC_CODES           ( 6U )
+
+/* Device read/write related ioctl starts from 0x20000000. */
+#define ioctlOBD_READ_TIMEOUT   0x20000000
+#define DEFAULT_READ_TIMEOUT_MS ( 1000 )
+
+/* GPS related ioctl. */
+#define ioctlOBD_GPS_ENABLE     0x30000000
+#define ioctlOBD_GPS_DISABLE    0x30000001
+#define ioctlOBD_GPS_READ       0x30000002
 
 typedef struct ObdDtcData
 {
     uint16_t dtc[MAX_DTC_CODES];
     uint8_t dtcCount;
 } ObdDtcData_t;
+
+/* This should be the same GPS_Data. */
+typedef struct ObdGpsData{
+	uint32_t ts;
+	uint32_t date;
+	uint32_t time;
+	float lat;
+	float lng;
+	float alt; /* meter */
+	float speed; /* knot */
+	uint16_t heading; /* degree */
+	uint8_t hdop;
+	uint8_t sat;
+	uint16_t sentences;
+	uint16_t errors;
+} ObdGpsData_t;
 
 #endif
