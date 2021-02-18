@@ -183,7 +183,7 @@
 /**
  * @brief Timeout for MQTT_ProcessLoop in milliseconds.
  */
-#define mqttexamplePROCESS_LOOP_TIMEOUT_MS                ( 700U )
+#define mqttexamplePROCESS_LOOP_TIMEOUT_MS                ( 5000U )
 
 /**
  * @brief The maximum number of times to call MQTT_ProcessLoop() when polling
@@ -487,13 +487,6 @@ BaseType_t publishMqtt( MQTTContext_t * pxMQTTContext,
 
 MQTTContext_t *setupMqttConnection( void )
 {
-    uint32_t ulPublishCount = 0U, ulTopicCount = 0U;
-    const uint32_t ulMaxPublishCount = 5UL;
-    MQTTStatus_t xMQTTStatus;
-    uint32_t ulDemoRunCount = 0UL, ulDemoSuccessCount = 0UL;
-    TransportSocketStatus_t xNetworkStatus;
-    BaseType_t xIsConnectionEstablished = pdFALSE;
-
     /* Upon return, pdPASS will indicate a successful demo execution.
     * pdFAIL will indicate some failures occurred during execution. The
     * user of this demo must check the logs for any failure codes. */
@@ -510,10 +503,6 @@ MQTTContext_t *setupMqttConnection( void )
 
     if( xDemoStatus == pdPASS )
     {
-        /* Set a flag indicating a TLS connection exists. This is done to
-         * disconnect if the loop exits before disconnection happens. */
-        xIsConnectionEstablished = pdTRUE;
-
         /* Sends an MQTT Connect packet over the already established TLS connection,
          * and waits for connection acknowledgment (CONNACK) packet. */
         LogInfo( ( "Creating an MQTT connection to %s.", democonfigMQTT_BROKER_ENDPOINT ) );

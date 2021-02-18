@@ -9,6 +9,8 @@
 
 #include "obd_device.h"
 
+#define FREEMATIC_SYS_INIT_MAX_TRIES        ( 3U )
+
 typedef struct ObdDeviceContext 
 {
     FreematicsESP32 *pSys;
@@ -53,22 +55,52 @@ Peripheral_device_t gObdDevice =
 Peripheral_Descriptor_t Obd_Open( const int8_t * pcPath,
                                   const uint32_t ulFlags )
 {
+    uint32_t i = 0;
+    bool retInit = false;
+    Peripheral_Descriptor_t retDesc = NULL;
+    
     configPRINTF(("%s:%d\r\n", __FUNCTION__, __LINE__));
     
-    /* Setup the OBD device. */
-    // put your setup code here, to run once:
-    pinMode(PIN_LED, OUTPUT);
-    digitalWrite(PIN_LED, HIGH);
-    delay(1000);
-    digitalWrite(PIN_LED, LOW);
-    Serial.begin(115200);
+    /* Setup the system indication and logging. */
+    Serial.begin(115200);   /* Serial device is initialized by FreeRTOS AWS. */
 
-    // initializations
-    while (!sys.begin());
-    obd.begin(sys.link);
-    obd.init();
+    /* Initialize system device. */
+    for( i = 0; i < FREEMATIC_SYS_INIT_MAX_TRIES; i++ )
+    {
+        if( sys.begin() == true )
+        {
+            retInit = true;
+            break;
+        }
+    }
 
-    return &gObdDevice;
+    /* Initialize OBD device. */
+    if( retInit == false )
+    {
+        configPRINTF(("OBD comm interface init failed\r\n"));
+    }
+    else
+    {
+        obd.begin( sys.link );  /* Setup the link only. This function return void. */
+        retInit = obd.init();
+        if( retInit == false )
+        {
+            configPRINTF(("OBD init failed\r\n"));
+            obd.uninit();
+            sys.end();
+        }
+        else
+        {
+            /* Setup the system indication and logging. */
+            pinMode(PIN_LED, OUTPUT);
+            digitalWrite(PIN_LED, HIGH);
+            delay(1000);
+            digitalWrite(PIN_LED, LOW);
+            retDesc = ( Peripheral_Descriptor_t )&gObdDevice;
+        }
+    }
+
+    return retDesc;
 }
 
 size_t Obd_Read( Peripheral_Descriptor_t const pxPeripheral,
@@ -137,27 +169,28 @@ size_t Obd_Write( Peripheral_Descriptor_t const pxPeripheral,
 }
 
 BaseType_t Obd_Ioctl( Peripheral_Descriptor_t const pxPeripheral,
-                           uint32_t ulRequest,
-                           void * pvValue )
+                      uint32_t ulRequest,
+                      void * pvValue )
 {
     int32_t *pValue = NULL;
     ObdDtcData_t *pObdDtcData = NULL;
     Peripheral_device_t *pDevice = ( Peripheral_device_t* )pxPeripheral;
     ObdDeviceContext_t *pObdContext = NULL;
-    BaseType_t retValue = FREERTOS_IO_OKAY;
+    BaseType_t retValue = pdPASS;
     GPS_DATA *pGpsData = NULL;
     ObdVinBuffer_t *pVinBuffer = NULL;
+    int pidValue = 0;
     
     // configPRINTF(("%s:%d\r\n", __FUNCTION__, __LINE__));
     if( pDevice == NULL )
     {
         configPRINTF(("Obd_Read bad param pxPeripheral\r\n"));
-        retValue = FREERTOS_IO_ERROR_BAD_PARAM;
+        retValue = pdFAIL;
     }
     else if( pDevice->pDeviceData == NULL )
     {
         configPRINTF(("Obd_Read bad param pDeviceData\r\n"));
-        retValue = FREERTOS_IO_ERROR_BAD_PARAM;
+        retValue = pdFAIL;
     }
     else
     {
@@ -215,44 +248,103 @@ BaseType_t Obd_Ioctl( Peripheral_Descriptor_t const pxPeripheral,
             case ioctlOBD_READ_PID_ENGINE_TORQUE_DEMANDED:
             case ioctlOBD_READ_PID_ENGINE_TORQUE_PERCENTAGE:
             case ioctlOBD_READ_PID_ENGINE_REF_TORQUE:
-                pValue = ( int32_t* )pvValue;
-                pObdContext->pObd->readPID( ulRequest, *pValue );
+                if( pvValue == NULL )
+                {
+                    configPRINTF(("ioctlOBD_READ_PID bad param pvValue\r\n"));
+                    retValue = pdFAIL;
+                }
+                else
+                {
+                    if( pObdContext->pObd->readPID( ulRequest, pidValue ) == false )
+                    {
+                        configPRINTF(("ioctlOBD_READ_PID fail 0x%08x\r\n", ulRequest));
+                        retValue = pdFAIL;
+                    }
+                    else
+                    {
+                        *( (int*) pvValue ) = pidValue;
+                    }
+                }
                 break;
             case ioctlOBD_READ_DTC:
-                pObdDtcData = ( ObdDtcData_t * )pvValue;
-                pObdDtcData->dtcCount = pObdContext->pObd->readDTC( pObdDtcData->dtc, MAX_DTC_CODES );
+                if( pvValue == NULL )
+                {
+                    configPRINTF(("ioctlOBD_READ_DTC bad param pvValue\r\n"));
+                    retValue = pdFAIL;
+                }
+                else
+                {
+                    pObdDtcData = ( ObdDtcData_t * )pvValue;
+                    pObdDtcData->dtcCount = pObdContext->pObd->readDTC( pObdDtcData->dtc, MAX_DTC_CODES );
+                }
+                break;
             case ioctlOBD_CLEAR_DTC:
                 pObdContext->pObd->clearDTC();
                 break;
             case ioctlOBD_READ_TIMEOUT:
-                if( pvValue != NULL )
+                if( pvValue == NULL )
+                {
+                    configPRINTF(("ioctlOBD_READ_TIMEOUT bad param pvValue\r\n"));
+                    retValue = pdFAIL;
+                }
+                else
                 {
                     pObdContext->readTimeoutMs = *(( uint32_t* )pvValue);
                 }
                 break;
             case ioctlOBD_GPS_ENABLE:
-                pObdContext->pSys->gpsBegin();
+                if( pObdContext->pSys->gpsBegin() == false )
+                {
+                    configPRINTF(("ioctlOBD_GPS_ENABLE fail\r\n"));
+                    retValue = pdFAIL;
+                }
                 break;
             case ioctlOBD_GPS_DISABLE:
-                pObdContext->pSys->gpsEnd();
+                pObdContext->pSys->gpsEnd();    /* Return value is void. */
                 break;
             case ioctlOBD_GPS_READ:
-                if( pvValue != NULL )
+                if( pvValue == NULL )
                 {
-                    pObdContext->pSys->gpsGetData( &pGpsData );
-                    memcpy( pvValue, pGpsData, sizeof(GPS_DATA) );
+                    configPRINTF(("ioctlOBD_GPS_READ bad param pvValue\r\n"));
+                    retValue = pdFAIL;
+                }
+                else
+                {
+                    if( pObdContext->pSys->gpsGetData( &pGpsData ) == false )
+                    {
+                        configPRINTF(("ioctlOBD_GPS_READ fail\r\n"));
+                        retValue = pdFAIL;
+                    }
+                    else
+                    {
+                        memcpy( pvValue, pGpsData, sizeof(GPS_DATA) );
+                    }
                 }
                 break;
             case ioctlOBD_READ_VIN:
-                if( pvValue != NULL )
+                if( pvValue == NULL )
+                {
+                    configPRINTF(("ioctlOBD_READ_VIN bad param pvValue\r\n"));
+                    retValue = pdFAIL;
+                }
+                else
                 {
                     char buffer[128] = { 0 };
                     pVinBuffer = ( ObdVinBuffer_t*) pvValue;
-                    pObdContext->pObd->getVIN( buffer, sizeof(buffer) );
-                    strncpy(pVinBuffer->vinBuffer, buffer, OBD_VIN_BUFFER_LENGTH - 1);
+                    if( pObdContext->pObd->getVIN( buffer, sizeof(buffer) ) == false )
+                    {
+                        configPRINTF(("ioctlOBD_READ_VIN fail\r\n"));
+                        retValue = pdFAIL;
+                    }
+                    else
+                    {
+                        strncpy(pVinBuffer->vinBuffer, buffer, OBD_VIN_BUFFER_LENGTH - 1);
+                    }
                 }
                 break;
             default:
+                configPRINTF(("unsupported ioctl request fail 0x%08x\r\n", ulRequest));
+                retValue = pdFAIL;
                 break;
         }
     }
