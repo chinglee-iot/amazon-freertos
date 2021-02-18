@@ -33,6 +33,10 @@
 #define OBD_LOCATION_DATA_INTERVAL_STEPS        ( OBD_LOCATION_DATA_INTERVAL_MS / OBD_DATA_COLLECT_INTERVAL_MS )
 
 #define OBD_ISO_TIME_MAX                    ( 32 )
+#define OBD_VIN_MAX                         ( 32 )
+#define OBD_IGNITION_MAX                    ( 4 )
+
+#define OBD_HIGH_SPEED_THRESHOLD            ( 120 )
 
 typedef struct obdContext
 {
@@ -40,15 +44,18 @@ typedef struct obdContext
     ObdAggregatedData_t obdAggregatedData;
     ObdTelemetryData_t obdTelemetryData;
     char tripId[16];
-    char vin[32];
+    char vin[OBD_VIN_MAX];
+    char ignition_status[OBD_IGNITION_MAX];
+    char transmission_gear_position[10];        // "neutral", "first", "second", "third", "fourth", "fifth", "sixth", etc
     double latitude;
     double longitude;
+    double odometer;
     ObdTelemetryDataType_t telemetryIndex;
     char topicBuf[OBD_TOPIC_BUF_SIZE];
     char messageBuf[OBD_MESSAGE_BUF_SIZE];
     Peripheral_Descriptor_t obdDevice;
     char isoTime[OBD_ISO_TIME_MAX];
-}obdContext_t;
+} obdContext_t;
 
 static obdContext_t gObdContext =
 {
@@ -58,7 +65,10 @@ static obdContext_t gObdContext =
     .tripId = "123",
     .vin = "WASM_test_car",
     .telemetryIndex = 0,
-    .isoTime = "1970-02-03 02:59:37.401000000"
+    .latitude = 25.034604041420014,
+    .longitude = 121.56610968404058,
+    .transmission_gear_position = "neutral",
+    .isoTime = "1970-01-01 00:00:00.000000000"
 };
 
 static const char OBD_DATA_AGGREGATED_TOPIC[] = "connectedcar/trip/%s";
@@ -179,7 +189,7 @@ static void checkObdDtcData( obdContext_t *pObdContext )
             );
             publishMqtt( pObdContext->pMqttContext,
                 pObdContext->topicBuf,
-                0,
+                strlen( pObdContext->topicBuf ),
                 pObdContext->messageBuf,
                 strlen( pObdContext->messageBuf )
             );
@@ -238,7 +248,7 @@ static void updateTelemetryData( obdContext_t *pObdContext )
     {
         /* Use gettickcount as time stamp from 1970-01-01 00:00:00.0000. */
         uint64_t upTimeMs = 0;
-        uint64_t days = 0;
+        uint64_t days = 1;
         uint64_t hours = 0;
         uint64_t minutes = 0;
         uint64_t seconds = 0;
@@ -255,7 +265,7 @@ static void updateTelemetryData( obdContext_t *pObdContext )
         snprintf( pObdContext->isoTime, OBD_ISO_TIME_MAX, "%04u-%02u-%02llu %0ll2u:%02llu:%02llu.%04llu",
             1970,
             1,
-            days,
+            days + 1,
             hours,
             minutes,
             seconds,
@@ -323,6 +333,7 @@ static void updateTelemetryData( obdContext_t *pObdContext )
                     }
                 }
                 break;
+            /*
             case OBD_TELEMETRY_TYPE_TORQUE_AT_TRANSMISSION:
                 retIoctl = FreeRTOS_ioctl( gObdContext.obdDevice, ioctlOBD_READ_PID_ENGINE_TORQUE_PERCENTAGE, &pidValue );
                 if( retIoctl == pdPASS )
@@ -330,6 +341,7 @@ static void updateTelemetryData( obdContext_t *pObdContext )
                     pObdContext->obdTelemetryData.torque_at_transmission = ( double )pidValue;
                 }
                 break;
+            */
             case OBD_TELEMETRY_TYPE_FUEL_LEVEL:
                 retIoctl = FreeRTOS_ioctl( gObdContext.obdDevice, ioctlOBD_READ_PID_FUEL_LEVEL, &pidValue );
                 if( retIoctl == pdPASS )
@@ -342,8 +354,7 @@ static void updateTelemetryData( obdContext_t *pObdContext )
                 retIoctl = FreeRTOS_ioctl( gObdContext.obdDevice, ioctlOBD_READ_PID_ODOMETER, &pidValue );
                 if( retIoctl == pdPASS )
                 {
-                    pObdContext->obdTelemetryData.odometer = ( double )pidValue;
-                    pObdContext->obdAggregatedData.odometer = pObdContext->obdTelemetryData.odometer;
+                    pObdContext->odometer = ( double )pidValue;
                 }
                 break;
             default:
@@ -359,13 +370,29 @@ static void sendObdLocationData( obdContext_t *pObdContext )
         pObdContext->isoTime,
         pObdContext->tripId,
         pObdContext->vin,
-        "location",
         pObdContext->latitude,
         pObdContext->longitude
     );
     publishMqtt( pObdContext->pMqttContext, 
         pObdContext->topicBuf,
-        0,
+        strlen( pObdContext->topicBuf ),
+        pObdContext->messageBuf,
+        strlen( pObdContext->messageBuf ) 
+    );
+}
+
+static void sendObdIgnitionData( obdContext_t *pObdContext )
+{
+    snprintf( pObdContext->topicBuf, OBD_TOPIC_BUF_SIZE, OBD_DATA_IGNITION_TOPIC, pObdContext->vin );
+    snprintf( pObdContext->messageBuf, OBD_MESSAGE_BUF_SIZE, OBD_DATA_IGNITION_FORMAT,
+        pObdContext->isoTime,
+        pObdContext->tripId,
+        pObdContext->vin,
+        pObdContext->ignition_status
+    );
+    publishMqtt( pObdContext->pMqttContext, 
+        pObdContext->topicBuf,
+        strlen( pObdContext->topicBuf ),
         pObdContext->messageBuf,
         strlen( pObdContext->messageBuf ) 
     );
@@ -373,79 +400,85 @@ static void sendObdLocationData( obdContext_t *pObdContext )
 
 static void sendObdTelemetryData( obdContext_t *pObdContext )
 {
-    int32_t pidValue = 0;
-    bool valueSupported = true;
+    bool valueSupported = false;
 
     snprintf( pObdContext->topicBuf, OBD_TOPIC_BUF_SIZE, OBD_DATA_TELEMETRY_TOPIC, pObdContext->vin );
-    snprintf( pObdContext->messageBuf, OBD_MESSAGE_BUF_SIZE, OBD_DATA_TELEMETRY_FORMAT_START,
-        pObdContext->isoTime,
-        pObdContext->tripId,
-        pObdContext->vin,
-        OBD_DATA_TELEMETRY_NAME_ARRAY[pObdContext->telemetryIndex]
-    );
 
-    switch( pObdContext->telemetryIndex )
+    while( valueSupported == false )
     {
-        case OBD_TELEMETRY_TYPE_OIL_TEMP:
-            snprintf( pObdContext->messageBuf, OBD_MESSAGE_BUF_SIZE, "%s%lf",
-                pObdContext->messageBuf,
-                pObdContext->obdTelemetryData.oil_temp
-            );
-            break;
-        case OBD_TELEMETRY_TYPE_ENGINE_SPEED:
-            snprintf( pObdContext->messageBuf, OBD_MESSAGE_BUF_SIZE, "%s%lf",
-                pObdContext->messageBuf,
-                pObdContext->obdTelemetryData.engine_speed
-            );
-            break;
-        case OBD_TELEMETRY_TYPE_VEHICLE_SPEED:
-            snprintf( pObdContext->messageBuf, OBD_MESSAGE_BUF_SIZE, "%s%lf",
-                pObdContext->messageBuf,
-                pObdContext->obdTelemetryData.vehicle_speed
-            );
-            break;
-        case OBD_TELEMETRY_TYPE_TORQUE_AT_TRANSMISSION:
-            snprintf( pObdContext->messageBuf, OBD_MESSAGE_BUF_SIZE, "%s%lf",
-                pObdContext->messageBuf,
-                pObdContext->obdTelemetryData.torque_at_transmission
-            );
-            break;
-        case OBD_TELEMETRY_TYPE_FUEL_LEVEL:
-            snprintf( pObdContext->messageBuf, OBD_MESSAGE_BUF_SIZE, "%s%lf",
-                pObdContext->messageBuf,
-                pObdContext->obdTelemetryData.fuel_level
-            );
-            break;
-        case OBD_TELEMETRY_TYPE_ODOMETER:
-            snprintf( pObdContext->messageBuf, OBD_MESSAGE_BUF_SIZE, "%s%lf",
-                pObdContext->messageBuf,
-                pObdContext->obdTelemetryData.odometer
-            );
-            break;
-        default:
-            valueSupported = false;
-            break;
+        snprintf( pObdContext->messageBuf, OBD_MESSAGE_BUF_SIZE, OBD_DATA_TELEMETRY_FORMAT_START,
+            pObdContext->isoTime,
+            pObdContext->tripId,
+            pObdContext->vin,
+            OBD_DATA_TELEMETRY_NAME_ARRAY[pObdContext->telemetryIndex]
+        );
+        switch( pObdContext->telemetryIndex )
+        {
+            case OBD_TELEMETRY_TYPE_OIL_TEMP:
+                snprintf( pObdContext->messageBuf, OBD_MESSAGE_BUF_SIZE, "%s%lf",
+                    pObdContext->messageBuf,
+                    pObdContext->obdTelemetryData.oil_temp
+                );
+                valueSupported = true;
+                break;
+            case OBD_TELEMETRY_TYPE_ENGINE_SPEED:
+                snprintf( pObdContext->messageBuf, OBD_MESSAGE_BUF_SIZE, "%s%lf",
+                    pObdContext->messageBuf,
+                    pObdContext->obdTelemetryData.engine_speed
+                );
+                valueSupported = true;
+                break;
+            case OBD_TELEMETRY_TYPE_VEHICLE_SPEED:
+                snprintf( pObdContext->messageBuf, OBD_MESSAGE_BUF_SIZE, "%s%lf",
+                    pObdContext->messageBuf,
+                    pObdContext->obdTelemetryData.vehicle_speed
+                );
+                valueSupported = true;
+                break;
+            case OBD_TELEMETRY_TYPE_TORQUE_AT_TRANSMISSION:
+                snprintf( pObdContext->messageBuf, OBD_MESSAGE_BUF_SIZE, "%s%lf",
+                    pObdContext->messageBuf,
+                    pObdContext->obdTelemetryData.torque_at_transmission
+                );
+                valueSupported = true;
+                break;
+            case OBD_TELEMETRY_TYPE_FUEL_LEVEL:
+                snprintf( pObdContext->messageBuf, OBD_MESSAGE_BUF_SIZE, "%s%lf",
+                    pObdContext->messageBuf,
+                    pObdContext->obdTelemetryData.fuel_level
+                );
+                valueSupported = true;
+                break;
+            case OBD_TELEMETRY_TYPE_ODOMETER:
+                snprintf( pObdContext->messageBuf, OBD_MESSAGE_BUF_SIZE, "%s%lf",
+                    pObdContext->messageBuf,
+                    pObdContext->odometer
+                );
+                valueSupported = true;
+                break;
+            case OBD_TELEMETRY_TYPE_TRANSMISSION_GEAR_POSITION:
+                snprintf( pObdContext->messageBuf, OBD_MESSAGE_BUF_SIZE, "%s\"%s\"",
+                    pObdContext->messageBuf,
+                    pObdContext->transmission_gear_position
+                );
+                valueSupported = true;
+                break;
+            default:
+                break;
+        }
+        pObdContext->telemetryIndex = ( pObdContext->telemetryIndex + 1 ) % OBD_TELEMETRY_TYPE_MAX;
     }
-    snprintf( pObdContext->messageBuf, OBD_MESSAGE_BUF_SIZE, "%s%d",
-        pObdContext->messageBuf,
-        pidValue
-    );
 
     snprintf( pObdContext->messageBuf, OBD_MESSAGE_BUF_SIZE, "%s%s",
         pObdContext->messageBuf,
         OBD_DATA_TELEMETRY_FORMAT_END
     );
-
-    if( valueSupported == true )
-    {
-        publishMqtt( pObdContext->pMqttContext,
-            pObdContext->topicBuf,
-            0,
-            pObdContext->messageBuf,
-            strlen( pObdContext->messageBuf )
-        );
-    }
-    pObdContext->telemetryIndex = ( pObdContext->telemetryIndex + 1 ) % OBD_TELEMETRY_TYPE_MAX;
+    publishMqtt( pObdContext->pMqttContext,
+        pObdContext->topicBuf,
+        strlen( pObdContext->topicBuf ),
+        pObdContext->messageBuf,
+        strlen( pObdContext->messageBuf )
+    );
 }
 
 static void sendObdAggregatedData( obdContext_t *pObdContext )
@@ -463,10 +496,10 @@ static void sendObdAggregatedData( obdContext_t *pObdContext )
         pObdContext->obdAggregatedData.high_braking_event,
         pObdContext->obdAggregatedData.idle_duration,
         pObdContext->obdAggregatedData.start_time,
-        pObdContext->obdAggregatedData.ignition_status,
+        pObdContext->ignition_status,
         pObdContext->obdAggregatedData.brake_pedal_status ? "true":"false",
-        pObdContext->obdAggregatedData.transmission_gear_position,
-        pObdContext->obdAggregatedData.odometer,
+        pObdContext->transmission_gear_position,
+        pObdContext->odometer,
         pObdContext->obdAggregatedData.fuel_level,
         pObdContext->obdAggregatedData.fuel_consumed_since_restart,
         pObdContext->latitude,
@@ -477,7 +510,7 @@ static void sendObdAggregatedData( obdContext_t *pObdContext )
     );
     publishMqtt( pObdContext->pMqttContext,
         pObdContext->topicBuf,
-        0,
+        strlen( pObdContext->topicBuf ),
         pObdContext->messageBuf,
         strlen( pObdContext->messageBuf )
     );
@@ -490,7 +523,6 @@ int RunOBDDemo( bool awsIotMqttMode,
                 const IotNetworkInterface_t * pNetworkInterface )
 {
     uint64_t loopSteps = 1;
-    ObdVinBuffer_t vinBuffer = { 0 };
     BaseType_t retIoctl = pdPASS;
     TickType_t startTicks = 0, elapsedTicks = 0;
 
@@ -517,42 +549,88 @@ int RunOBDDemo( bool awsIotMqttMode,
     configPRINTF(("trip id %sr\n", gObdContext.tripId ));
     
     /* Read VIN. */
-    retIoctl = FreeRTOS_ioctl( gObdContext.obdDevice, ioctlOBD_READ_VIN, &vinBuffer );
+    /* retIoctl = FreeRTOS_ioctl( gObdContext.obdDevice, ioctlOBD_READ_VIN, &vinBuffer );
     configPRINTF(("VIN %sr\n", vinBuffer.vinBuffer ));
-    strncpy( gObdContext.vin, vinBuffer.vinBuffer, 16 );
+    strncpy( gObdContext.vin, vinBuffer.vinBuffer, 16 );*/
+    strncpy( gObdContext.vin, "78D4H8DTVH6B25TQY\0", OBD_VIN_MAX );
+    
+    /* Send the ignition status. */
+    updateTelemetryData( &gObdContext );
+    strcpy( gObdContext.obdAggregatedData.start_time, gObdContext.isoTime );
+    strncpy( gObdContext.ignition_status, "run", OBD_IGNITION_MAX );
+    sendObdIgnitionData( &gObdContext );
 
     /* Main thread runs in send data loop. */
-    while(1)
+    while( xTaskGetTickCount() < pdMS_TO_TICKS( 50000 ) )
     {
         startTicks = xTaskGetTickCount();
     
         /* Check the DTC events. */
         checkObdDtcData( &gObdContext );
+        configPRINTF(("%d: elapsed ticks %lu\r\n", __LINE__, (xTaskGetTickCount() - startTicks)));
         
         /* Update telemetry data. */
         updateTelemetryData( &gObdContext );
+        configPRINTF(("%d: elapsed ticks %lu\r\n", __LINE__, (xTaskGetTickCount() - startTicks)));
+        
+        if( gObdContext.obdTelemetryData.vehicle_speed == 0 )
+        {
+            strcpy( gObdContext.transmission_gear_position, "neutral" );
+        } 
+        else if( gObdContext.obdTelemetryData.vehicle_speed < 30 )
+        {
+            strcpy( gObdContext.transmission_gear_position, "first" );
+        }
+        else if( gObdContext.obdTelemetryData.vehicle_speed < 50 )
+        {
+            strcpy( gObdContext.transmission_gear_position, "second" );
+        }
+        else if( gObdContext.obdTelemetryData.vehicle_speed < 70 )
+        {
+            strcpy( gObdContext.transmission_gear_position, "third" );
+        }
+        else if( gObdContext.obdTelemetryData.vehicle_speed < 90 )
+        {
+            strcpy( gObdContext.transmission_gear_position, "fourth" );
+        }
+        else if( gObdContext.obdTelemetryData.vehicle_speed < 110 )
+        {
+            strcpy( gObdContext.transmission_gear_position, "fifth" );
+        }
+        else
+        {
+            strcpy( gObdContext.transmission_gear_position, "sixth" );
+        }
+
+        /* Check driver events. */
 
         /* Check the Location data events. */
         if( ( loopSteps % OBD_LOCATION_DATA_INTERVAL_STEPS ) == 0 )
         {
             sendObdLocationData( &gObdContext );
         }
+        configPRINTF(("%d: elapsed ticks %lu\r\n", __LINE__, (xTaskGetTickCount() - startTicks)));
+
 
         /* Check the telemetry data events. */
         if( ( loopSteps % OBD_TELEMETRY_DATA_INTERVAL_STEPS ) == 0 )
         {
             sendObdTelemetryData( &gObdContext );
         }
+        configPRINTF(("%d: elapsed ticks %lu\r\n", __LINE__, (xTaskGetTickCount() - startTicks)));
+
 
         /* Check the aggregated data events. */
         if( ( loopSteps % OBD_AGGREGATED_DATA_INTERVAL_STEPS ) == 0 )
         {
             sendObdAggregatedData( &gObdContext );
         }
+        configPRINTF(("%d: elapsed ticks %lu\r\n", __LINE__, (xTaskGetTickCount() - startTicks)));
+
         
         /* Check loop exit events. */
         
-        /* TODO : Calculate remain time. */
+        /* Calculate remain time. */
         elapsedTicks = xTaskGetTickCount() - startTicks;
         if( pdMS_TO_TICKS( OBD_DATA_COLLECT_INTERVAL_MS ) > elapsedTicks )
         {
@@ -566,5 +644,15 @@ int RunOBDDemo( bool awsIotMqttMode,
         loopSteps = loopSteps + 1;
     }
 
+    /* Send the ignition status. */
+    updateTelemetryData( &gObdContext );
+    strncpy( gObdContext.ignition_status, "off", OBD_IGNITION_MAX );
+    sendObdIgnitionData( &gObdContext );
+    
+    /* Send the aggregated data. */
+    gObdContext.odometer = 15.0;
+    strcpy( gObdContext.transmission_gear_position, "neutral" );
+    sendObdAggregatedData( &gObdContext );
+    
     return 0;
 }

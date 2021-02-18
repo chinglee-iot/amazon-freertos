@@ -946,3 +946,24 @@ bool FreematicsESP32::begin(bool useGNSS, bool useCellular, bool useCoProc)
     }
     return devType != 0;
 }
+
+void FreematicsESP32::end(bool useCellular)
+{
+    /* Clean the cellular interface. */
+    if( useCellular )
+    {
+        xbEnd();
+    }
+
+    /* Clean the coprocessor interface. */
+    if( link != NULL )
+    {
+        link->end();
+        delete link;
+        link = NULL;
+    }
+
+    /* Clean the flag and device type. */
+    m_flags = 0;
+    devType = 0;
+}

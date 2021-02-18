@@ -183,7 +183,7 @@
 /**
  * @brief Timeout for MQTT_ProcessLoop in milliseconds.
  */
-#define mqttexamplePROCESS_LOOP_TIMEOUT_MS                ( 5000U )
+#define mqttexamplePROCESS_LOOP_TIMEOUT_MS                ( 1000U )
 
 /**
  * @brief The maximum number of times to call MQTT_ProcessLoop() when polling
@@ -461,7 +461,7 @@ BaseType_t publishMqtt( MQTTContext_t * pxMQTTContext,
     xMQTTPublishInfo.qos = MQTTQoS1;
     xMQTTPublishInfo.retain = false;
     xMQTTPublishInfo.pTopicName = pTopic;
-    xMQTTPublishInfo.topicNameLength = ( uint16_t ) strlen( pTopic );
+    xMQTTPublishInfo.topicNameLength = topicLength;
     xMQTTPublishInfo.pPayload = pMsg;
     xMQTTPublishInfo.payloadLength = msgLength;
 
@@ -1101,7 +1101,11 @@ static void prvMQTTProcessResponse( MQTTPacketInfo_t * pxIncomingPacket,
         case MQTT_PACKET_TYPE_PUBACK:
             LogInfo( ( "PUBACK received for packet Id %u.", usPacketId ) );
             /* Make sure ACK packet identifier matches with Request packet identifier. */
-            configASSERT( usPublishPacketIdentifier == usPacketId );
+            if( usPublishPacketIdentifier != usPacketId )
+            {
+                LogError( ( " usPublishPacketIdentifier %u != %u.", usPublishPacketIdentifier, usPacketId ) );
+            }
+            /* configASSERT( usPublishPacketIdentifier == usPacketId ); */
             break;
 
         case MQTT_PACKET_TYPE_SUBACK:

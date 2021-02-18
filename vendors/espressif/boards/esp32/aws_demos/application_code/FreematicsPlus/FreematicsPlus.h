@@ -126,6 +126,7 @@ class FreematicsESP32 : public CFreematics
 {
 public:
   bool begin(bool useGNSS = true, bool useCellular = true, bool useCoProc = true);
+  void end(bool useCellular = true);
   // start GPS
   bool gpsBegin(int baudrate = 115200);
   // turn off GPS
