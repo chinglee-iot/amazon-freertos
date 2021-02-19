@@ -441,56 +441,85 @@ static MQTTFixedBuffer_t xBuffer =
 
 /*-----------------------------------------------------------*/
 
-MQTTContext_t gMQTTContext = { 0 };
-NetworkContext_t gNetworkContext = { 0 };
+typedef struct MQTTConnection
+{
+    MQTTContext_t MQTTContext;
+    NetworkContext_t NetworkContext;
+} MQTTConnection_t;
 
-BaseType_t publishMqtt( MQTTContext_t * pxMQTTContext, 
+static MQTTConnection_t gMQTTConnection = { 0 };
+
+BaseType_t publishMqtt( MQTTConnection_t *pMQTTConnection, 
                         char *pTopic,
                         uint16_t topicLength,
                         uint8_t *pMsg,
                         uint32_t msgLength)
 {
-    MQTTStatus_t xResult;
+    MQTTStatus_t xResult = MQTTSuccess;
     MQTTPublishInfo_t xMQTTPublishInfo;
     BaseType_t xStatus = pdPASS;
-
-    /* Some fields are not used by this demo so start with everything at 0. */
-    ( void ) memset( ( void * ) &xMQTTPublishInfo, 0x00, sizeof( xMQTTPublishInfo ) );
-
-    /* This demo uses QoS1. */
-    xMQTTPublishInfo.qos = MQTTQoS1;
-    xMQTTPublishInfo.retain = false;
-    xMQTTPublishInfo.pTopicName = pTopic;
-    xMQTTPublishInfo.topicNameLength = topicLength;
-    xMQTTPublishInfo.pPayload = pMsg;
-    xMQTTPublishInfo.payloadLength = msgLength;
-
-    /* Get a unique packet id. */
-    usPublishPacketIdentifier = MQTT_GetPacketId( pxMQTTContext );
-
-    /* Send PUBLISH packet. Packet ID is not used for a QoS1 publish. */
-    xResult = MQTT_Publish( pxMQTTContext, &xMQTTPublishInfo, usPublishPacketIdentifier );
-
-    if( xResult != MQTTSuccess )
-    {
-        xStatus = pdFAIL;
-        LogError( ( "Failed to send PUBLISH message to broker: Topic=%s, Error=%s",
-                    mqttexampleTOPIC,
-                    MQTT_Status_strerror( xResult ) ) );
-    }
+    MQTTContext_t * pxMQTTContext = NULL;
     
-    xResult = MQTT_ProcessLoop( pxMQTTContext, mqttexamplePROCESS_LOOP_TIMEOUT_MS );
+    /* Check parameters. */
+    if( pMQTTConnection == NULL )
+    {
+        LogError( ( "publishMqtt invalid pxMQTTContext" ) );
+        xStatus = pdFAIL;
+    }
+    else if( ( pTopic == NULL ) || ( pMsg == NULL ) )
+    {
+        LogError( ( "publishMqtt invalid pTopic or pMsg" ) );
+        xStatus = pdFAIL;
+    }
+    else
+    {
+        pxMQTTContext = &pMQTTConnection->MQTTContext;
+        /* Some fields are not used by this demo so start with everything at 0. */
+        ( void ) memset( ( void * ) &xMQTTPublishInfo, 0x00, sizeof( xMQTTPublishInfo ) );
 
+        /* This demo uses QoS1. */
+        xMQTTPublishInfo.qos = MQTTQoS1;
+        xMQTTPublishInfo.retain = false;
+        xMQTTPublishInfo.pTopicName = pTopic;
+        xMQTTPublishInfo.topicNameLength = topicLength;
+        xMQTTPublishInfo.pPayload = pMsg;
+        xMQTTPublishInfo.payloadLength = msgLength;
+
+        /* Get a unique packet id. */
+        usPublishPacketIdentifier = MQTT_GetPacketId( pxMQTTContext );
+
+        /* Send PUBLISH packet. Packet ID is not used for a QoS1 publish. */
+        xResult = MQTT_Publish( pxMQTTContext, &xMQTTPublishInfo, usPublishPacketIdentifier );
+
+        if( xResult != MQTTSuccess )
+        {
+            xStatus = pdFAIL;
+            LogError( ( "Failed to send PUBLISH message to broker: Topic=%s, Error=%s",
+                        mqttexampleTOPIC,
+                        MQTT_Status_strerror( xResult ) ) );
+        }
+        else
+        {
+            xResult = MQTT_ProcessLoop( pxMQTTContext, mqttexamplePROCESS_LOOP_TIMEOUT_MS );
+            if( xResult != MQTTSuccess )
+            {
+                xStatus = pdFAIL;
+                LogError( ( "Failed to process loop: Error=%s",
+                            MQTT_Status_strerror( xResult ) ) );
+            }
+        }
+    }
 
     return xStatus;
 }
 
-MQTTContext_t *setupMqttConnection( void )
+MQTTConnection_t *setupMqttConnection( void )
 {
     /* Upon return, pdPASS will indicate a successful demo execution.
     * pdFAIL will indicate some failures occurred during execution. The
     * user of this demo must check the logs for any failure codes. */
     BaseType_t xDemoStatus = pdFAIL;
+    MQTTConnection_t *pMQTTConnection = NULL;
 
     /****************************** Connect. ******************************/
 
@@ -499,17 +528,50 @@ MQTTContext_t *setupMqttConnection( void )
      * the maximum number of attempts are reached or the maximum timeout value is reached.
      * The function returns a failure status if the TLS over TCP connection cannot be established
      * to the broker after the configured number of attempts. */
-    xDemoStatus = prvConnectToServerWithBackoffRetries( &gNetworkContext );
+    xDemoStatus = prvConnectToServerWithBackoffRetries( &gMQTTConnection.NetworkContext );
 
     if( xDemoStatus == pdPASS )
     {
         /* Sends an MQTT Connect packet over the already established TLS connection,
          * and waits for connection acknowledgment (CONNACK) packet. */
         LogInfo( ( "Creating an MQTT connection to %s.", democonfigMQTT_BROKER_ENDPOINT ) );
-        xDemoStatus = prvCreateMQTTConnectionWithBroker( &gMQTTContext, &gNetworkContext );
+        xDemoStatus = prvCreateMQTTConnectionWithBroker( &gMQTTConnection.MQTTContext, &gMQTTConnection.NetworkContext );
     }
     
-    return &gMQTTContext;
+    if( xDemoStatus == pdPASS )
+    {
+        pMQTTConnection = &gMQTTConnection;
+    }
+    
+    return pMQTTConnection;
+}
+
+void closeMqttConnection( MQTTConnection_t *pMQTTConnection )
+{
+    TransportSocketStatus_t xNetworkStatus;
+
+    if( pMQTTConnection != NULL )
+    {
+        /* Send an MQTT Disconnect packet over the already connected TLS over TCP connection.
+         * There is no corresponding response for the disconnect packet. After sending
+         * disconnect, client must close the network connection. */
+        LogInfo( ( "Disconnecting the MQTT connection with %s.", democonfigMQTT_BROKER_ENDPOINT ) );
+        MQTT_Disconnect( &pMQTTConnection->MQTTContext );
+ 
+        /* We will always close the network connection, even if an error may have occurred during
+         * demo execution, to clean up the system resources that it may have consumed. */
+
+        /* Close the network connection.  */
+        xNetworkStatus = SecureSocketsTransport_Disconnect( &pMQTTConnection->NetworkContext );
+
+        if( xNetworkStatus != TRANSPORT_SOCKET_STATUS_SUCCESS )
+        {
+            LogError( ( "SecureSocketsTransport_Disconnect() failed to close the network connection. "
+                        "StatusCode=%d.", ( int ) xNetworkStatus ) );
+        }
+
+        memset( pMQTTConnection, 0, sizeof( MQTTConnection_t ) );
+    }
 }
 
 /*
