@@ -45,6 +45,8 @@
 #define TIME_SELECTION_GPS                  ( 1 )
 #define TIME_SELECTION_UPTIME               ( 2 )
 
+#define OBD_DEFAULT_VIN                     "78D4H8DTVH6B25TQY\0"
+
 /* MQTT Handle is opaque pointer. */
 struct MQTTConnection;
 typedef struct MQTTConnection *MQTTHandle_t;
@@ -88,8 +90,8 @@ static obdContext_t gObdContext =
     .tripId = "123",
     .vin = "WASM_test_car",
     .telemetryIndex = 0,
-    .latitude = 25.034604041420014,
-    .longitude = 121.56610968404058,
+    .latitude = 0.0,
+    .longitude = 0.0,
     .transmission_gear_position = "neutral",
     .isoTime = "1970-01-01 00:00:00.000000000",
     .timeSelection = TIME_SELECTION_NONE,
@@ -193,11 +195,18 @@ static const char *OBD_DATA_TELEMETRY_NAME_ARRAY[OBD_TELEMETRY_TYPE_MAX] =
     "brake"
 };
 
+/* Incomming message topic. */
+static const char OBD_MESSAGE_TOPIC_FORMAT[] = "connectedcar/alert/%s/hello";
+
 extern BaseType_t publishMqtt( MQTTContext_t * pxMQTTContext,
                         char *pTopic,
                         uint16_t topicLength,
                         uint8_t *pMsg,
                         uint32_t msgLength);
+
+extern BaseType_t SubscribeMqttTopic( MQTTContext_t * pxMQTTContext,
+                                      char *pTopic,
+                                      uint16_t topicLength );
 
 extern MQTTContext_t *setupMqttConnection( void );
 
@@ -300,24 +309,27 @@ static void updateTimestamp( obdContext_t *pObdContext, ObdGpsData_t *pGpsData )
     }
 
     /* If we can't get GPS data, we use the uptime. */
-    if( ( pObdContext->timeSelection == TIME_SELECTION_GPS ) && ( pGpsData != NULL ) )
+    if( pObdContext->timeSelection == TIME_SELECTION_GPS )
     {
-        float kph = (float)((int)(pGpsData->speed * 1.852f * 10)) / 10;
+        if( pGpsData != NULL )
+        {
+            float kph = (float)((int)(pGpsData->speed * 1.852f * 10)) / 10;
 
-        pObdContext->timeSelection = TIME_SELECTION_GPS;
-        char *p = pObdContext->isoTime + snprintf(pObdContext->isoTime, OBD_ISO_TIME_MAX, "%04u-%02u-%02u %02u:%02u:%02u",
-            (unsigned int)(pGpsData->date % 100) + 2000,
-            (unsigned int)(pGpsData->date / 100) % 100,
-            (unsigned int)(pGpsData->date / 10000),
-            (unsigned int)(pGpsData->time / 1000000),
-            (unsigned int)(pGpsData->time % 1000000) / 10000,
-            (unsigned int)(pGpsData->time % 10000) / 100);
-        unsigned char tenth = (pGpsData->time % 100) / 10;
-        if (tenth) p += sprintf(p, ".%c00", '0' + tenth);
-        *p = '0';
+            pObdContext->timeSelection = TIME_SELECTION_GPS;
+            char *p = pObdContext->isoTime + snprintf(pObdContext->isoTime, OBD_ISO_TIME_MAX, "%04u-%02u-%02u %02u:%02u:%02u",
+                (unsigned int)(pGpsData->date % 100) + 2000,
+                (unsigned int)(pGpsData->date / 100) % 100,
+                (unsigned int)(pGpsData->date / 10000),
+                (unsigned int)(pGpsData->time / 1000000),
+                (unsigned int)(pGpsData->time % 1000000) / 10000,
+                (unsigned int)(pGpsData->time % 10000) / 100);
+            unsigned char tenth = (pGpsData->time % 100) / 10;
+            if (tenth) p += sprintf(p, ".%c00", '0' + tenth);
+            *p = '0';
 
-        configPRINTF(("[GPS] %lf %lf %lf km/h SATS %d Course: %d %s\r\n",
-            pGpsData->lat, pGpsData->lng, kph, pGpsData->sat, pGpsData->heading, pObdContext->isoTime));
+            configPRINTF(("[GPS] %lf %lf %lf km/h SATS %d Course: %d %s\r\n",
+                pGpsData->lat, pGpsData->lng, kph, pGpsData->sat, pGpsData->heading, pObdContext->isoTime));
+        }
     }
     else if( pObdContext->timeSelection == TIME_SELECTION_UPTIME )
     {
@@ -415,15 +427,11 @@ static double obdReadVehicleSpeed( obdContext_t *pObdContext )
     return vehicleSpeed;
 }
 
-static void updateTelemetryData( obdContext_t *pObdContext )
+static double updateGPSData( obdContext_t *pObdContext )
 {
-    int32_t pidValue = 0;
-    ObdTelemetryDataType_t pidIndex = OBD_TELEMETRY_TYPE_STEERING_WHEEL_ANGLE;
-    uint64_t currentTicks = ( uint64_t ) xTaskGetTickCount();
-    uint64_t timeDiffMs = ( currentTicks - pObdContext->lastUpdateTicks ) * ( ( uint64_t ) ( ( 1000 ) / configTICK_RATE_HZ ) );
-
     ObdGpsData_t gpsData = { 0 };
     BaseType_t retIoctl = pdPASS;
+    double kph = 0.0;
 
     /* Update GPS data. */
     retIoctl = FreeRTOS_ioctl( pObdContext->obdDevice, ioctlOBD_GPS_READ, &gpsData );
@@ -431,6 +439,8 @@ static void updateTelemetryData( obdContext_t *pObdContext )
     {
         pObdContext->latitude = gpsData.lat;
         pObdContext->longitude = gpsData.lng;
+        
+        kph = (double)((int)(gpsData.speed * 1.852f * 10)) / 10;
     }
 
     /* Update timestamp. */
@@ -438,10 +448,20 @@ static void updateTelemetryData( obdContext_t *pObdContext )
     {
         updateTimestamp( pObdContext, &gpsData );
     }
-    else
-    {
-        updateTimestamp( pObdContext, NULL );
-    }
+
+    return kph;
+}
+
+static void updateTelemetryData( obdContext_t *pObdContext )
+{
+    int32_t pidValue = 0;
+    ObdTelemetryDataType_t pidIndex = OBD_TELEMETRY_TYPE_STEERING_WHEEL_ANGLE;
+    uint64_t currentTicks = ( uint64_t ) xTaskGetTickCount();
+    uint64_t timeDiffMs = ( currentTicks - pObdContext->lastUpdateTicks ) * ( ( uint64_t ) ( ( 1000 ) / configTICK_RATE_HZ ) );
+
+    BaseType_t retIoctl = pdPASS;
+    
+    updateTimestamp( pObdContext, NULL );
 
     /* Update telemetry and aggregated data. */
     for( pidIndex = OBD_TELEMETRY_TYPE_STEERING_WHEEL_ANGLE; pidIndex < OBD_TELEMETRY_TYPE_MAX; pidIndex++ )
@@ -496,8 +516,11 @@ static void updateTelemetryData( obdContext_t *pObdContext )
                     /* Update the simulated Acceleration. */
                     double previous_speed = pObdContext->obdTelemetryData.vehicle_speed;
                     pObdContext->obdTelemetryData.vehicle_speed = ( double ) pidValue;
-                    pObdContext->obdTelemetryData.acceleration = 
-                        ( pObdContext->obdTelemetryData.vehicle_speed - previous_speed ) * ( 1000 ) / timeDiffMs;
+                    if( timeDiffMs != 0 )
+                    {
+                        pObdContext->obdTelemetryData.acceleration = 
+                            ( pObdContext->obdTelemetryData.vehicle_speed - previous_speed ) * ( 1000 ) / timeDiffMs;
+                    }
                     // configPRINTF( ( "Acceleration %lf\r\n", pObdContext->obdTelemetryData.acceleration ) );
                     
                     /* Update the simulated high speed duration. */
@@ -580,20 +603,24 @@ static void updateTelemetryData( obdContext_t *pObdContext )
 static BaseType_t sendObdLocationData( obdContext_t *pObdContext )
 {
     BaseType_t retMqtt = pdPASS;
-    snprintf( pObdContext->topicBuf, OBD_TOPIC_BUF_SIZE, OBD_DATA_LOCATION_TOPIC, pObdContext->vin );
-    snprintf( pObdContext->messageBuf, OBD_MESSAGE_BUF_SIZE, OBD_DATA_LOCATION_FORMAT,
-        pObdContext->isoTime,
-        pObdContext->tripId,
-        pObdContext->vin,
-        pObdContext->latitude,
-        pObdContext->longitude
-    );
-    retMqtt = publishMqtt( pObdContext->pMqttContext, 
-        pObdContext->topicBuf,
-        strlen( pObdContext->topicBuf ),
-        pObdContext->messageBuf,
-        strlen( pObdContext->messageBuf ) 
-    );
+
+    if( ( pObdContext->latitude != 0.0 ) && ( pObdContext->longitude != 0.0 ) )
+    {
+        snprintf( pObdContext->topicBuf, OBD_TOPIC_BUF_SIZE, OBD_DATA_LOCATION_TOPIC, pObdContext->vin );
+        snprintf( pObdContext->messageBuf, OBD_MESSAGE_BUF_SIZE, OBD_DATA_LOCATION_FORMAT,
+            pObdContext->isoTime,
+            pObdContext->tripId,
+            pObdContext->vin,
+            pObdContext->latitude,
+            pObdContext->longitude
+        );
+        retMqtt = publishMqtt( pObdContext->pMqttContext, 
+            pObdContext->topicBuf,
+            strlen( pObdContext->topicBuf ),
+            pObdContext->messageBuf,
+            strlen( pObdContext->messageBuf ) 
+        );
+    }
     return retMqtt;
 }
 
@@ -775,10 +802,13 @@ int RunOBDDemo( bool awsIotMqttMode,
     TickType_t startTicks = 0, elapsedTicks = 0;
     bool ignitionStatus = false;
     int i = 0;
+    double vehicleSpeed = 0;
+    double gpsSpeed = 0;
 
     gObdContext.buzzDevice = FreeRTOS_open( "/dev/buzz", 0 );
     if( gObdContext.buzzDevice != NULL )
     {
+        /* Network connection success indication. */
         FreeRTOS_ioctl( gObdContext.buzzDevice, ioctlBUZZ_ON, NULL );
         vTaskDelay( pdMS_TO_TICKS( 250 ) );
         FreeRTOS_ioctl( gObdContext.buzzDevice, ioctlBUZZ_OFF, NULL );
@@ -809,14 +839,35 @@ int RunOBDDemo( bool awsIotMqttMode,
             break;
         }
     }
+
     if( gObdContext.buzzDevice != NULL )
     {
+        /* OBD connection indication. */
         FreeRTOS_ioctl( gObdContext.buzzDevice, ioctlBUZZ_ON, NULL );
         vTaskDelay( pdMS_TO_TICKS( 250 ) );
         FreeRTOS_ioctl( gObdContext.buzzDevice, ioctlBUZZ_OFF, NULL );
         FreeRTOS_ioctl( gObdContext.buzzDevice, ioctlBUZZ_ON, NULL );
         vTaskDelay( pdMS_TO_TICKS( 250 ) );
         FreeRTOS_ioctl( gObdContext.buzzDevice, ioctlBUZZ_OFF, NULL );
+    }
+
+    /* Read VIN. */
+#ifdef OBD_DEFAULT_VIN
+    strncpy( gObdContext.vin, OBD_DEFAULT_VIN, OBD_VIN_MAX );
+    retIoctl = pdPASS;
+#else
+    retIoctl = FreeRTOS_ioctl( gObdContext.obdDevice, ioctlOBD_READ_VIN, &vinBuffer );
+    configPRINTF(("VIN %sr\n", vinBuffer.vinBuffer ));
+    strncpy( gObdContext.vin, vinBuffer.vinBuffer, 16 );
+    if( retIoctl == pdFAIL )
+    {
+        configPRINTF(("OBD device read VIN fail\r\n"));
+    }
+#endif
+    if( retIoctl == pdPASS )
+    {
+        snprintf( gObdContext.topicBuf, OBD_TOPIC_BUF_SIZE, OBD_MESSAGE_TOPIC_FORMAT, gObdContext.vin );
+        SubscribeMqttTopic( gObdContext.pMqttContext, gObdContext.topicBuf, strlen( gObdContext.topicBuf ) );
     }
 
     /* Enable GPS device. */
@@ -832,12 +883,6 @@ int RunOBDDemo( bool awsIotMqttMode,
         /* Use time info as trip ID. */
         genTripId( &gObdContext );
         configPRINTF(("Start a new trip id %sr\n", gObdContext.tripId ));
-        
-        /* Read VIN. */
-        /* retIoctl = FreeRTOS_ioctl( gObdContext.obdDevice, ioctlOBD_READ_VIN, &vinBuffer );
-        configPRINTF(("VIN %sr\n", vinBuffer.vinBuffer ));
-        strncpy( gObdContext.vin, vinBuffer.vinBuffer, 16 );*/
-        strncpy( gObdContext.vin, "78D4H8DTVH6B25TQY\0", OBD_VIN_MAX );
 
         /* Main thread runs in send data loop. */
         while( true )
@@ -845,14 +890,29 @@ int RunOBDDemo( bool awsIotMqttMode,
             startTicks = xTaskGetTickCount();
 
             /* Check exit events. */
-        
+
             /* Check the DTC events. */
             checkObdDtcData( &gObdContext );
 
+            /* Check the Location data events. */
+            gpsSpeed = updateGPSData( &gObdContext );
+            if( ( loopSteps % OBD_LOCATION_DATA_INTERVAL_STEPS ) == 0 )
+            {
+                retSendMsg = sendObdLocationData( &gObdContext );
+                if( retSendMsg == pdFAIL )
+                {
+                    closeMqttConnection( gObdContext.pMqttContext );
+                    gObdContext.pMqttContext = setupMqttConnection();
+                }
+            }
+
+            /* Check the ignition status. */
             if( ignitionStatus == false )
             {
                 /* Wait until there is speed. */
-                if( obdReadVehicleSpeed( &gObdContext ) == 0 )
+                vehicleSpeed = obdReadVehicleSpeed( &gObdContext );
+                // configPRINTF(("Vehicle speed %lf for ignition\r\n", vehicleSpeed));
+                if( ( vehicleSpeed == 0 ) && ( gpsSpeed == 0 ) )
                 {
                     vTaskDelay( pdMS_TO_TICKS( OBD_DATA_COLLECT_INTERVAL_MS ) );
                     continue;
@@ -860,6 +920,8 @@ int RunOBDDemo( bool awsIotMqttMode,
                 else
                 {
                     ignitionStatus = true;
+                    
+                    configPRINTF( ( "Vehicle speed %lf gps speed %lf for ignition\r\n", vehicleSpeed, gpsSpeed ) );
     
                     /* Save the start information. */
                     gObdContext.startTicks = ( uint64_t )xTaskGetTickCount();
@@ -879,12 +941,15 @@ int RunOBDDemo( bool awsIotMqttMode,
                     }
                 }
             }
-            
-            /* Update telemetry data. */
-            updateTelemetryData( &gObdContext );
+            else
+            {
+                /* Update telemetry data. */
+                updateTelemetryData( &gObdContext );
+            }
 
-            /* Check driver events. */
-            if( gObdContext.idleSpeedDurationIntervalMs >= ( ( uint64_t ) CAR_IGINITION_IDLE_OFF_MS ) )
+            /* Check the ignition off events. */
+            if( ( gObdContext.idleSpeedDurationIntervalMs >= ( ( uint64_t ) CAR_IGINITION_IDLE_OFF_MS ) ) &&
+                ( gpsSpeed == 0 ) )
             {
                 configPRINTF(("Idle speed duration interval ms %llu %llu\r\n",
                     gObdContext.idleSpeedDurationIntervalMs, ( uint64_t ) CAR_IGINITION_IDLE_OFF_MS ) );
@@ -896,17 +961,6 @@ int RunOBDDemo( bool awsIotMqttMode,
                     gObdContext.pMqttContext = setupMqttConnection();
                 }
                 break;
-            }
-
-            /* Check the Location data events. */
-            if( ( loopSteps % OBD_LOCATION_DATA_INTERVAL_STEPS ) == 0 )
-            {
-                retSendMsg = sendObdLocationData( &gObdContext );
-                if( retSendMsg == pdFAIL )
-                {
-                    closeMqttConnection( gObdContext.pMqttContext );
-                    gObdContext.pMqttContext = setupMqttConnection();
-                }
             }
 
             /* Check the telemetry data events. */

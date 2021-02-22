@@ -9,6 +9,8 @@
 
 #include "buzz_device.h"
 
+extern FreematicsESP32 sys;
+
 Peripheral_Descriptor_t Buzz_Open( const int8_t * pcPath,
                                        const uint32_t ulFlags );
 

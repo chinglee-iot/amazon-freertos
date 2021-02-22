@@ -53,7 +53,7 @@ Peripheral_device_t gObdDevice =
 Peripheral_Descriptor_t Obd_Open( const int8_t * pcPath,
                                   const uint32_t ulFlags )
 {
-    bool retInit = false;
+    bool retInit = true;
     Peripheral_Descriptor_t retDesc = NULL;
 
     configPRINTF(("%s:%d\r\n", __FUNCTION__, __LINE__));
