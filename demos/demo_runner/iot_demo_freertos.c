@@ -351,6 +351,9 @@ void runDemoTask( void * pArgument )
     else
     {
         IotLogError( "Failed to initialize the demo. exiting..." );
+        /* Add demo code for network setup failure cases. */
+        extern void demoNetworkFailureHook( void );
+        demoNetworkFailureHook();
     }
 
     /* DO NOT EDIT - This demo end marker is used in the test framework to

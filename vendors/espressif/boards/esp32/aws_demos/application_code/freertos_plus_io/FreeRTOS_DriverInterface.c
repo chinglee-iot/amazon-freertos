@@ -4,10 +4,18 @@
 #include "FreeRTOS_DriverInterface.h"
 
 #include "obd_device.h"
+#include "buzz_device.h"
+
+/* Define the ioctl of OBD devices. */
+extern Peripheral_device_t gObdDevice;
+
+/* Define the ioctl of BUZZ devices. */
+extern Peripheral_device_t gBuzzDevice;
 
 static Peripheral_device_t *pPeripheralDevices[] =
 {
-    &gObdDevice
+    &gObdDevice,
+    &gBuzzDevice
 };
 
 Peripheral_Descriptor_t FreeRTOS_open( const int8_t * pcPath,

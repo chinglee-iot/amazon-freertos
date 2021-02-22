@@ -30,14 +30,9 @@ typedef struct ObdAggregatedData
     double oil_temp_mean;
     double accelerator_pedal_position_mean;
     double brake_mean;
-    double high_speed_duration;
     uint32_t high_acceleration_event;
     uint32_t high_braking_event;
-    double idle_duration;
     char start_time[32];                        // e.g., 1970-02-03 02 =59 =37.401000000
-    bool brake_pedal_status;
-    double fuel_level;                          // 0 to 100
-    double fuel_consumed_since_restart;
     double latitude;
     double longitude;
 } ObdAggregatedData_t;
@@ -50,10 +45,7 @@ typedef struct ObdTelemetryData
     double engine_speed;
     double vehicle_speed;
     double torque_at_transmission;
-    char accelerator_pedal_position[10];
-    double fuel_level;
-    double fuel_consumed_since_restart;
-    bool brake_pedal_status;
+    double accelerator_pedal_position;
     char gear_lever_position[16];
     double brake;
     bool parking_break_status;

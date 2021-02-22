@@ -3,9 +3,6 @@
 
 #include "FreeRTOS_DriverInterface.h"
 
-/* Define the ioctl of OBD devices. */
-extern Peripheral_device_t gObdDevice;
-
 // Mode 1 PIDs
 #define ioctlOBD_READ_PID_ENGINE_LOAD 0x04
 #define ioctlOBD_READ_PID_COOLANT_TEMP 0x05

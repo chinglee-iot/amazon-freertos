@@ -12,6 +12,7 @@
 #include "obd_data.h"
 #include "FreeRTOS_IO.h"
 #include "obd_device.h"
+#include "buzz_device.h"
 
 /* The simulated car info. */
 #define CAR_GAS_TANK_SIZE                   ( 50.0 ) /* Litres. */
@@ -71,6 +72,7 @@ typedef struct obdContext
     char topicBuf[OBD_TOPIC_BUF_SIZE];
     char messageBuf[OBD_MESSAGE_BUF_SIZE];
     Peripheral_Descriptor_t obdDevice;
+    Peripheral_Descriptor_t buzzDevice;
     char isoTime[OBD_ISO_TIME_MAX];
     uint8_t timeSelection;
     uint64_t startTicks;
@@ -95,7 +97,9 @@ static obdContext_t gObdContext =
     .updateCount = 0,
     .highSpeedDurationMs = 0,
     .idleSpeedDurationMs = 0,
-    .idleSpeedDurationIntervalMs = 0
+    .idleSpeedDurationIntervalMs = 0,
+    .obdDevice = NULL,
+    .buzzDevice = NULL
 };
 
 static const char OBD_DATA_AGGREGATED_TOPIC[] = "connectedcar/trip/%s";
@@ -772,6 +776,14 @@ int RunOBDDemo( bool awsIotMqttMode,
     bool ignitionStatus = false;
     int i = 0;
 
+    gObdContext.buzzDevice = FreeRTOS_open( "/dev/buzz", 0 );
+    if( gObdContext.buzzDevice != NULL )
+    {
+        FreeRTOS_ioctl( gObdContext.buzzDevice, ioctlBUZZ_ON, NULL );
+        vTaskDelay( pdMS_TO_TICKS( 250 ) );
+        FreeRTOS_ioctl( gObdContext.buzzDevice, ioctlBUZZ_OFF, NULL );
+    }
+
     /* Setup the mqtt connection. */
     for( i = 0; i < 3; i++ )
     {
@@ -796,6 +808,15 @@ int RunOBDDemo( bool awsIotMqttMode,
             configPRINTF(("OBD device init done\r\n"));
             break;
         }
+    }
+    if( gObdContext.buzzDevice != NULL )
+    {
+        FreeRTOS_ioctl( gObdContext.buzzDevice, ioctlBUZZ_ON, NULL );
+        vTaskDelay( pdMS_TO_TICKS( 250 ) );
+        FreeRTOS_ioctl( gObdContext.buzzDevice, ioctlBUZZ_OFF, NULL );
+        FreeRTOS_ioctl( gObdContext.buzzDevice, ioctlBUZZ_ON, NULL );
+        vTaskDelay( pdMS_TO_TICKS( 250 ) );
+        FreeRTOS_ioctl( gObdContext.buzzDevice, ioctlBUZZ_OFF, NULL );
     }
 
     /* Enable GPS device. */
@@ -930,4 +951,18 @@ int RunOBDDemo( bool awsIotMqttMode,
     }
     
     return 0;
+}
+
+void demoNetworkFailureHook( void )
+{
+    if( gObdContext.buzzDevice == NULL )
+    {
+        gObdContext.buzzDevice = FreeRTOS_open( "/dev/buzz", 0 );
+    }
+    if( gObdContext.buzzDevice != NULL )
+    {
+        FreeRTOS_ioctl( gObdContext.buzzDevice, ioctlBUZZ_ON, NULL );
+        vTaskDelay( pdMS_TO_TICKS( 1000 ) );
+        FreeRTOS_ioctl( gObdContext.buzzDevice, ioctlBUZZ_OFF, NULL );
+    }
 }

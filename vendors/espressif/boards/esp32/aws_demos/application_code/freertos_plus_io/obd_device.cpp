@@ -9,8 +9,6 @@
 
 #include "obd_device.h"
 
-#define FREEMATIC_SYS_INIT_MAX_TRIES        ( 3U )
-
 typedef struct ObdDeviceContext 
 {
     FreematicsESP32 *pSys;
@@ -33,7 +31,7 @@ BaseType_t Obd_Ioctl( Peripheral_Descriptor_t const xPeripheral,
                            uint32_t ulRequest,
                            void * pvValue );
 
-static FreematicsESP32 sys;
+extern FreematicsESP32 sys;
 static COBD obd;
 static ObdDeviceContext_t obdDeviceContext =
 {
@@ -55,49 +53,27 @@ Peripheral_device_t gObdDevice =
 Peripheral_Descriptor_t Obd_Open( const int8_t * pcPath,
                                   const uint32_t ulFlags )
 {
-    uint32_t i = 0;
     bool retInit = false;
     Peripheral_Descriptor_t retDesc = NULL;
-    
-    configPRINTF(("%s:%d\r\n", __FUNCTION__, __LINE__));
-    
-    /* Setup the system indication and logging. */
-    Serial.begin(115200);   /* Serial device is initialized by FreeRTOS AWS. */
 
-    /* Initialize system device. */
-    for( i = 0; i < FREEMATIC_SYS_INIT_MAX_TRIES; i++ )
-    {
-        if( sys.begin() == true )
-        {
-            retInit = true;
-            break;
-        }
-    }
+    configPRINTF(("%s:%d\r\n", __FUNCTION__, __LINE__));
 
     /* Initialize OBD device. */
+    obd.begin( sys.link );  /* Setup the link only. This function return void. */
+    retInit = obd.init();
     if( retInit == false )
     {
-        configPRINTF(("OBD comm interface init failed\r\n"));
+        configPRINTF(("OBD init failed\r\n"));
+        obd.uninit();
     }
     else
     {
-        obd.begin( sys.link );  /* Setup the link only. This function return void. */
-        retInit = obd.init();
-        if( retInit == false )
-        {
-            configPRINTF(("OBD init failed\r\n"));
-            obd.uninit();
-            sys.end();
-        }
-        else
-        {
-            /* Setup the system indication and logging. */
-            pinMode(PIN_LED, OUTPUT);
-            digitalWrite(PIN_LED, HIGH);
-            delay(1000);
-            digitalWrite(PIN_LED, LOW);
-            retDesc = ( Peripheral_Descriptor_t )&gObdDevice;
-        }
+        /* Setup the system indication and logging. */
+        pinMode(PIN_LED, OUTPUT);
+        digitalWrite(PIN_LED, HIGH);
+        delay(1000);
+        digitalWrite(PIN_LED, LOW);
+        retDesc = ( Peripheral_Descriptor_t )&gObdDevice;
     }
 
     return retDesc;
@@ -146,17 +122,17 @@ size_t Obd_Write( Peripheral_Descriptor_t const pxPeripheral,
     
     if( pDevice == NULL )
     {
-        configPRINTF(("Obd_Read bad param pxPeripheral\r\n"));
+        configPRINTF(("Obd_Write bad param pxPeripheral\r\n"));
         retSize = FREERTOS_IO_ERROR_BAD_PARAM;
     }
     else if( pDevice->pDeviceData == NULL )
     {
-        configPRINTF(("Obd_Read bad param pDeviceData\r\n"));
+        configPRINTF(("Obd_Write bad param pDeviceData\r\n"));
         retSize = FREERTOS_IO_ERROR_BAD_PARAM;
     }
     else if( pBuf[xBytes-1] != '\0' )
     {
-        configPRINTF(("Obd_Read bad param pvBuffer\r\n"));
+        configPRINTF(("Obd_Write bad param pvBuffer\r\n"));
         retSize = FREERTOS_IO_ERROR_BAD_PARAM;
     }
     else
@@ -172,7 +148,6 @@ BaseType_t Obd_Ioctl( Peripheral_Descriptor_t const pxPeripheral,
                       uint32_t ulRequest,
                       void * pvValue )
 {
-    int32_t *pValue = NULL;
     ObdDtcData_t *pObdDtcData = NULL;
     Peripheral_device_t *pDevice = ( Peripheral_device_t* )pxPeripheral;
     ObdDeviceContext_t *pObdContext = NULL;
@@ -184,12 +159,12 @@ BaseType_t Obd_Ioctl( Peripheral_Descriptor_t const pxPeripheral,
     // configPRINTF(("%s:%d\r\n", __FUNCTION__, __LINE__));
     if( pDevice == NULL )
     {
-        configPRINTF(("Obd_Read bad param pxPeripheral\r\n"));
+        configPRINTF(("Obd_Ioctl bad param pxPeripheral\r\n"));
         retValue = pdFAIL;
     }
     else if( pDevice->pDeviceData == NULL )
     {
-        configPRINTF(("Obd_Read bad param pDeviceData\r\n"));
+        configPRINTF(("Obd_Ioctl bad param pDeviceData\r\n"));
         retValue = pdFAIL;
     }
     else
