@@ -3,8 +3,8 @@
 
 #include "FreeRTOS.h"
 
-#define FREERTOS_IO_OKAY                ( 0 )
-#define FREERTOS_IO_ERROR_BAD_PARAM     ( -1 )
+#define FREERTOS_IO_OKAY               ( 0 )
+#define FREERTOS_IO_ERROR_BAD_PARAM    ( -1 )
 
 typedef const void * Peripheral_Descriptor_t;
 
