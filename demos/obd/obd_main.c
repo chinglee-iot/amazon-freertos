@@ -13,11 +13,10 @@
 #include "FreeRTOS_IO.h"
 
 #include "obd_pid.h"
-#include "obd_device.h"
-#include "buzz_device.h"
 
 #include "obd_library.h"
 #include "gps_library.h"
+#include "buzz_library.h"
 
 /* The simulated car info. */
 #define CAR_GAS_TANK_SIZE                      ( 50.0 )      /* Litres. */
@@ -51,6 +50,10 @@
 #define TIME_SELECTION_UPTIME                  ( 2 )
 
 #define OBD_DEFAULT_VIN                        "78D4H8DTVH6B25TQY\0"
+
+
+#define BUZZ_SHORT_BEEP_DURATION_MS             ( 250 )
+#define BUZZ_LONG_BEEP_DURATION_MS              ( 1000 )
 
 /* MQTT Handle is opaque pointer. */
 struct MQTTConnection;
@@ -851,9 +854,7 @@ int RunOBDDemo( bool awsIotMqttMode,
     if( gObdContext.buzzDevice != NULL )
     {
         /* Network connection success indication. */
-        FreeRTOS_ioctl( gObdContext.buzzDevice, ioctlBUZZ_ON, NULL );
-        vTaskDelay( pdMS_TO_TICKS( 250 ) );
-        FreeRTOS_ioctl( gObdContext.buzzDevice, ioctlBUZZ_OFF, NULL );
+        buzz_beep( gObdContext.buzzDevice, BUZZ_SHORT_BEEP_DURATION_MS, 1 );
     }
 
     /* Setup the mqtt connection. */
@@ -883,19 +884,15 @@ int RunOBDDemo( bool awsIotMqttMode,
     {
         while( OBDLib_Init( gObdContext.obdDevice ) != 0 )
         {
+            vTaskDelay( pdMS_TO_TICKS( 1000 ) );
+            /* TODO : check exit condition here. */
         }
     }
 
     if( gObdContext.buzzDevice != NULL )
     {
         /* OBD connection indication. */
-        FreeRTOS_ioctl( gObdContext.buzzDevice, ioctlBUZZ_ON, NULL );
-        vTaskDelay( pdMS_TO_TICKS( 250 ) );
-        FreeRTOS_ioctl( gObdContext.buzzDevice, ioctlBUZZ_OFF, NULL );
-        vTaskDelay( pdMS_TO_TICKS( 50 ) );
-        FreeRTOS_ioctl( gObdContext.buzzDevice, ioctlBUZZ_ON, NULL );
-        vTaskDelay( pdMS_TO_TICKS( 250 ) );
-        FreeRTOS_ioctl( gObdContext.buzzDevice, ioctlBUZZ_OFF, NULL );
+        buzz_beep( gObdContext.buzzDevice, BUZZ_SHORT_BEEP_DURATION_MS, 2 );
     }
 
     /* Read VIN. */
@@ -940,7 +937,7 @@ int RunOBDDemo( bool awsIotMqttMode,
         {
             startTicks = xTaskGetTickCount();
 
-            /* Check exit events. */
+            /* TODO : check exit condition here. */
 
             /* Check the DTC events. */
             checkObdDtcData( &gObdContext );
@@ -1078,8 +1075,6 @@ void demoNetworkFailureHook( void )
 
     if( gObdContext.buzzDevice != NULL )
     {
-        FreeRTOS_ioctl( gObdContext.buzzDevice, ioctlBUZZ_ON, NULL );
-        vTaskDelay( pdMS_TO_TICKS( 1000 ) );
-        FreeRTOS_ioctl( gObdContext.buzzDevice, ioctlBUZZ_OFF, NULL );
+        buzz_beep( gObdContext.buzzDevice, BUZZ_LONG_BEEP_DURATION_MS, 1 );
     }
 }

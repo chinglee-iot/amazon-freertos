@@ -457,13 +457,12 @@ int OBDLib_Init( Peripheral_Descriptor_t obdDevice )
 {
     const char * initcmd[] = { "ATE0\r", "ATH0\r" };
     char buffer[ 64 ];
-    uint32_t n = 0, i = 0, j = 0;
+    uint32_t n = 0, i = 0;
     uint32_t stage = 0;
     int value;
     uint8_t pidmap[ 4 * 8 ] = { 0 };
     char * p = NULL;
     size_t retReadSize = 0;
-    char printBuffer[ 128 ] = { 0 };
 
     /* Softreset. */
     for( n = 0; n < 10; n++ )
@@ -504,13 +503,9 @@ int OBDLib_Init( Peripheral_Descriptor_t obdDevice )
     {
         uint8_t pid = i * 0x20;
         sprintf( buffer, "%02X%02X\r", dataMode, pid );
-        configPRINTF( ( "Send cmd %s\r\n", buffer ) );
         FreeRTOS_write( obdDevice, buffer, strlen( buffer ) );
-        /* link->send(buffer); */
 
         retReadSize = FreeRTOS_read( obdDevice, buffer, sizeof( buffer ) );
-        configPRINTF( ( "Read buffer %d %s\r\n", retReadSize, buffer ) );
-
         if( checkErrorMessage( buffer ) )
         {
             continue;
@@ -530,17 +525,6 @@ int OBDLib_Init( Peripheral_Descriptor_t obdDevice )
                 }
             }
         }
-    }
-
-    for( i = 0; i < 8; i++ )
-    {
-        for( j = 0; j < 4; j++ )
-        {
-            snprintf( printBuffer, 128, "%s %02X", printBuffer, pidmap[ i * 4 + j ] );
-        }
-
-        configPRINTF( ( "%s\r\n", printBuffer ) );
-        printBuffer[ 0 ] = '\0';
     }
 
     return 0;
