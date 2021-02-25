@@ -1,6 +1,8 @@
 #ifndef __FREERTOS_DRIVERINTERFACE_H__
 #define __FREERTOS_DRIVERINTERFACE_H__
 
+#include "FreeRTOS_IO.h"
+
 #define DEVICE_PATH_MAX     ( 128 )
 
 typedef Peripheral_Descriptor_t ( *Peripheral_open_Function_t )

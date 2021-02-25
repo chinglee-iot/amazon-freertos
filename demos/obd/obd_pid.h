@@ -1,4 +1,6 @@
-// Mode 1 PIDs
+#ifndef __OBD_PID_H__
+#define ifndef__OBD_PID_H__
+
 #define PID_ENGINE_LOAD 0x04
 #define PID_COOLANT_TEMP 0x05
 #define PID_SHORT_TERM_FUEL_TRIM_1 0x06
@@ -51,22 +53,4 @@
 #define PID_ENGINE_TORQUE_PERCENTAGE 0x62
 #define PID_ENGINE_REF_TORQUE 0x63
 
-typedef enum {
-    PROTO_AUTO = 0x0,
-    PROTO_ISO_9141_2 = 0x3,
-    PROTO_KWP2000_5KBPS = 0x4,
-    PROTO_KWP2000_FAST = 0x5,
-    PROTO_CAN_11B_500K = 0x6,
-    PROTO_CAN_29B_500K = 0x7,
-    PROTO_CAN_29B_250K = 0x8,
-    PROTO_CAN_11B_250K = 0x9,
-    PROTO_J1939 = 0xB,
-} OBD_PROTOCOLS;
-
-// states
-typedef enum {
-    OBD_DISCONNECTED = 0,
-    OBD_CONNECTING = 1,
-    OBD_CONNECTED = 2,
-    OBD_FAILED = 3
-} OBD_STATES;
+#endif

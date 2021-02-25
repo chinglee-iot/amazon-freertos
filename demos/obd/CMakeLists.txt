@@ -15,6 +15,8 @@ afr_module_sources(
     ${AFR_CURRENT_MODULE}
     INTERFACE
         "${CMAKE_CURRENT_LIST_DIR}/obd_main.c"
+        "${CMAKE_CURRENT_LIST_DIR}/obd_library.c"
+        "${CMAKE_CURRENT_LIST_DIR}/gps_library.c"
 )
 
 afr_module_dependencies(

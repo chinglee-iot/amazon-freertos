@@ -11,13 +11,18 @@
 
 #include "obd_data.h"
 #include "FreeRTOS_IO.h"
+
+#include "obd_pid.h"
 #include "obd_device.h"
 #include "buzz_device.h"
 
+#include "obd_library.h"
+#include "gps_library.h"
+
 /* The simulated car info. */
-#define CAR_GAS_TANK_SIZE                   ( 50.0 ) /* Litres. */
-#define CAR_HIGH_SPEED_THRESHOLD            ( 120.0 ) /* KM/hr. */
-#define CAR_IDLE_SPEED_THRESHOLD            ( 0.0 ) /* KM/hr. */
+#define CAR_GAS_TANK_SIZE                   ( 50.0 )        /* Litres. */
+#define CAR_HIGH_SPEED_THRESHOLD            ( 120.0 )       /* KM/hr. */
+#define CAR_IDLE_SPEED_THRESHOLD            ( 0.0 )         /* KM/hr. */
 #define CAR_IGINITION_IDLE_OFF_MS           ( 30 * 1000 )   /* Idle interval time to trigger iginition off. */
 #define CAR_ACCELARATOR_PADEL_RPM_THRESHOLD ( 6000.0 )
 
@@ -199,10 +204,10 @@ static const char *OBD_DATA_TELEMETRY_NAME_ARRAY[OBD_TELEMETRY_TYPE_MAX] =
 static const char OBD_MESSAGE_TOPIC_FORMAT[] = "connectedcar/alert/%s/hello";
 
 extern BaseType_t publishMqtt( MQTTContext_t * pxMQTTContext,
-                        char *pTopic,
-                        uint16_t topicLength,
-                        uint8_t *pMsg,
-                        uint32_t msgLength);
+                               char *pTopic,
+                               uint16_t topicLength,
+                               uint8_t *pMsg,
+                               uint32_t msgLength);
 
 extern BaseType_t SubscribeMqttTopic( MQTTContext_t * pxMQTTContext,
                                       char *pTopic,
@@ -212,30 +217,29 @@ extern MQTTContext_t *setupMqttConnection( void );
 
 static void checkObdDtcData( obdContext_t *pObdContext )
 {
-    ObdDtcData_t obdData = { 0 };
     uint32_t i = 0;
-    BaseType_t retIoctl = pdPASS;
+    uint16_t dtc[MAX_DTC_CODES];
+    int retCodeRead = 0;
 
-    retIoctl = FreeRTOS_ioctl( gObdContext.obdDevice, ioctlOBD_READ_DTC, &obdData );
-    if( retIoctl == pdPASS )
+
+    retCodeRead = OBDLib_ReadDTC( pObdContext->obdDevice, dtc, MAX_DTC_CODES );
+
+    for( i = 0; i < retCodeRead; i++ )
     {
-        for( i = 0; i < obdData.dtcCount; i++ )
-        {
-            snprintf( pObdContext->topicBuf, OBD_TOPIC_BUF_SIZE, OBD_DATA_DTC_TOPIC, pObdContext->vin );
-            snprintf( pObdContext->messageBuf, OBD_MESSAGE_BUF_SIZE, OBD_DATA_DTC_FORMAT,
-                pObdContext->isoTime,
-                pObdContext->tripId,
-                pObdContext->vin,
-                obdData.dtc[i]
-            );
-            publishMqtt( pObdContext->pMqttContext,
-                pObdContext->topicBuf,
-                strlen( pObdContext->topicBuf ),
-                pObdContext->messageBuf,
-                strlen( pObdContext->messageBuf )
-            );
-            FreeRTOS_ioctl( gObdContext.obdDevice, ioctlOBD_CLEAR_DTC, NULL );
-        }
+        snprintf( pObdContext->topicBuf, OBD_TOPIC_BUF_SIZE, OBD_DATA_DTC_TOPIC, pObdContext->vin );
+        snprintf( pObdContext->messageBuf, OBD_MESSAGE_BUF_SIZE, OBD_DATA_DTC_FORMAT,
+            pObdContext->isoTime,
+            pObdContext->tripId,
+            pObdContext->vin,
+            dtc[i]
+        );
+        publishMqtt( pObdContext->pMqttContext,
+            pObdContext->topicBuf,
+            strlen( pObdContext->topicBuf ),
+            pObdContext->messageBuf,
+            strlen( pObdContext->messageBuf )
+        );
+        OBDLib_ClearDTC( pObdContext->obdDevice );
     }
 }
 
@@ -243,10 +247,11 @@ static void genTripId( obdContext_t *pObdContext )
 {
     ObdGpsData_t gpsData = { 0 };
     uint32_t randomBuf = 0;
-    BaseType_t retIoctl = pdPASS;
+    bool retGetData = false;
 
-    retIoctl = FreeRTOS_ioctl( gObdContext.obdDevice, ioctlOBD_GPS_READ, &gpsData );
-    if( retIoctl == pdPASS )
+    // retIoctl = FreeRTOS_ioctl( gObdContext.obdDevice, ioctlOBD_GPS_READ, &gpsData );
+    retGetData = GPSLib_GetData( gObdContext.obdDevice, &gpsData );
+    if( retGetData == true )
     {
         char *p = pObdContext->tripId + sprintf(pObdContext->tripId, "%04u%02u%02u%02u%02u%02u",
             (unsigned int)(gpsData.date % 100) + 2000, (unsigned int)(gpsData.date / 100) % 100, (unsigned int)(gpsData.date / 10000),
@@ -403,8 +408,8 @@ static void resetTelemetryData( obdContext_t *pObdContext )
     memset( &pObdContext->obdAggregatedData, 0, sizeof( ObdAggregatedData_t ) );
     memset( &pObdContext->obdTelemetryData, 0, sizeof( ObdTelemetryData_t ) );
     pObdContext->telemetryIndex = 0;
-    pObdContext->latitude = 25.034604041420014;
-    pObdContext->longitude = 121.56610968404058;
+    pObdContext->latitude = 0;
+    pObdContext->longitude = 0;
     pObdContext->timeSelection = TIME_SELECTION_NONE;
     pObdContext->lastUpdateTicks = 0;
     pObdContext->updateCount = 0;
@@ -419,7 +424,7 @@ static double obdReadVehicleSpeed( obdContext_t *pObdContext )
     int32_t pidValue = 0;
     double vehicleSpeed = 0;
 
-    retIoctl = FreeRTOS_ioctl( pObdContext->obdDevice, ioctlOBD_READ_PID_SPEED, &pidValue );
+    retIoctl = OBDLib_ReadPID( pObdContext->obdDevice, PID_SPEED, &pidValue );
     if( retIoctl == pdPASS )
     {
         vehicleSpeed = ( double ) pidValue;
@@ -430,12 +435,12 @@ static double obdReadVehicleSpeed( obdContext_t *pObdContext )
 static double updateGPSData( obdContext_t *pObdContext )
 {
     ObdGpsData_t gpsData = { 0 };
-    BaseType_t retIoctl = pdPASS;
+    bool retGetData = false;
     double kph = 0.0;
 
     /* Update GPS data. */
-    retIoctl = FreeRTOS_ioctl( pObdContext->obdDevice, ioctlOBD_GPS_READ, &gpsData );
-    if( retIoctl == pdPASS )
+    retGetData = GPSLib_GetData( pObdContext->obdDevice, &gpsData );
+    if( retGetData == true )
     {
         pObdContext->latitude = gpsData.lat;
         pObdContext->longitude = gpsData.lng;
@@ -444,7 +449,7 @@ static double updateGPSData( obdContext_t *pObdContext )
     }
 
     /* Update timestamp. */
-    if( retIoctl == pdPASS )
+    if( retGetData == true )
     {
         updateTimestamp( pObdContext, &gpsData );
     }
@@ -459,7 +464,7 @@ static void updateTelemetryData( obdContext_t *pObdContext )
     uint64_t currentTicks = ( uint64_t ) xTaskGetTickCount();
     uint64_t timeDiffMs = ( currentTicks - pObdContext->lastUpdateTicks ) * ( ( uint64_t ) ( ( 1000 ) / configTICK_RATE_HZ ) );
 
-    BaseType_t retIoctl = pdPASS;
+    bool retReadPID = true;
     
     updateTimestamp( pObdContext, NULL );
 
@@ -469,8 +474,8 @@ static void updateTelemetryData( obdContext_t *pObdContext )
         switch( pidIndex )
         {
             case OBD_TELEMETRY_TYPE_OIL_TEMP:
-                retIoctl = FreeRTOS_ioctl( pObdContext->obdDevice, ioctlOBD_READ_PID_ENGINE_OIL_TEMP, &pidValue );
-                if( retIoctl == pdPASS )
+                retReadPID = OBDLib_ReadPID( pObdContext->obdDevice, PID_ENGINE_OIL_TEMP, &pidValue );
+                if( retReadPID == true )
                 {
                     pObdContext->obdTelemetryData.oil_temp = ( double )pidValue;
                     if( pObdContext->obdAggregatedData.oil_temp_mean == 0 )
@@ -488,8 +493,8 @@ static void updateTelemetryData( obdContext_t *pObdContext )
                 }
                 break;
             case OBD_TELEMETRY_TYPE_ENGINE_SPEED:
-                retIoctl = FreeRTOS_ioctl( pObdContext->obdDevice, ioctlOBD_READ_PID_RPM, &pidValue );
-                if( retIoctl == pdPASS )
+                retReadPID = OBDLib_ReadPID( pObdContext->obdDevice, PID_RPM, &pidValue );
+                if( retReadPID == true )
                 {
                     pObdContext->obdTelemetryData.engine_speed = ( double )pidValue;
                     if( pObdContext->obdAggregatedData.engine_speed_mean == 0 )
@@ -510,8 +515,8 @@ static void updateTelemetryData( obdContext_t *pObdContext )
                 }
                 break;
             case OBD_TELEMETRY_TYPE_VEHICLE_SPEED:
-                retIoctl = FreeRTOS_ioctl( pObdContext->obdDevice, ioctlOBD_READ_PID_SPEED, &pidValue );
-                if( retIoctl == pdPASS )
+                retReadPID = OBDLib_ReadPID( pObdContext->obdDevice, PID_SPEED, &pidValue );
+                if( retReadPID == true )
                 {
                     /* Update the simulated Acceleration. */
                     double previous_speed = pObdContext->obdTelemetryData.vehicle_speed;
@@ -560,7 +565,7 @@ static void updateTelemetryData( obdContext_t *pObdContext )
                 break;
             /*
             case OBD_TELEMETRY_TYPE_TORQUE_AT_TRANSMISSION:
-                retIoctl = FreeRTOS_ioctl( pObdContext->obdDevice, ioctlOBD_READ_PID_ENGINE_TORQUE_PERCENTAGE, &pidValue );
+                retIoctl = OBDLib_ReadPID( pObdContext->obdDevice, PID_ENGINE_TORQUE_PERCENTAGE, &pidValue );
                 if( retIoctl == pdPASS )
                 {
                     pObdContext->obdTelemetryData.torque_at_transmission = ( double )pidValue;
@@ -568,8 +573,8 @@ static void updateTelemetryData( obdContext_t *pObdContext )
                 break;
             */
             case OBD_TELEMETRY_TYPE_FUEL_LEVEL:
-                retIoctl = FreeRTOS_ioctl( pObdContext->obdDevice, ioctlOBD_READ_PID_FUEL_LEVEL, &pidValue );
-                if( retIoctl == pdPASS )
+                retReadPID = OBDLib_ReadPID( pObdContext->obdDevice, PID_FUEL_LEVEL, &pidValue );
+                if( retReadPID == true )
                 {
                     pObdContext->fuel_level = ( double )pidValue;
                     /* Update the simulated fuel_consumed_since_restart. */
@@ -578,17 +583,9 @@ static void updateTelemetryData( obdContext_t *pObdContext )
                 }
                 break;
             case OBD_TELEMETRY_TYPE_ODOMETER:
-                retIoctl = FreeRTOS_ioctl( pObdContext->obdDevice, ioctlOBD_READ_PID_ODOMETER, &pidValue );
-                if( retIoctl == pdPASS )
-                {
-                    pObdContext->odometer = ( double )pidValue;
-                }
-                else
-                {
-                    /* Update simulated data. */
-                    pObdContext->odometer = pObdContext->obdAggregatedData.vehicle_speed_mean * 
-                        ( currentTicks - pObdContext->startTicks ) / ( 60*60*1000 );
-                }
+                /* Update simulated data. */
+                pObdContext->odometer = pObdContext->obdAggregatedData.vehicle_speed_mean * 
+                    ( currentTicks - pObdContext->startTicks ) / ( 60*60*1000 );
                 break;
             default:
                 break;
@@ -830,14 +827,14 @@ int RunOBDDemo( bool awsIotMqttMode,
 
     /* Open the OBD devices. */
     configPRINTF(("Start obd device init\r\n"));
-    while( 1 )
+    gObdContext.obdDevice = FreeRTOS_open( "/dev/obd", 0 );
+    if( gObdContext.obdDevice == NULL )
     {
-        gObdContext.obdDevice = FreeRTOS_open( "/dev/obd", 0 );
-        if( gObdContext.obdDevice != NULL )
-        {
-            configPRINTF(("OBD device init done\r\n"));
-            break;
-        }
+        configPRINTF(("OBD device open failed\r\n"));
+    }
+    else
+    {
+        while( OBDLib_Init( gObdContext.obdDevice ) != 0 );
     }
 
     if( gObdContext.buzzDevice != NULL )
@@ -846,6 +843,7 @@ int RunOBDDemo( bool awsIotMqttMode,
         FreeRTOS_ioctl( gObdContext.buzzDevice, ioctlBUZZ_ON, NULL );
         vTaskDelay( pdMS_TO_TICKS( 250 ) );
         FreeRTOS_ioctl( gObdContext.buzzDevice, ioctlBUZZ_OFF, NULL );
+        vTaskDelay( pdMS_TO_TICKS( 50 ) );
         FreeRTOS_ioctl( gObdContext.buzzDevice, ioctlBUZZ_ON, NULL );
         vTaskDelay( pdMS_TO_TICKS( 250 ) );
         FreeRTOS_ioctl( gObdContext.buzzDevice, ioctlBUZZ_OFF, NULL );
@@ -856,14 +854,18 @@ int RunOBDDemo( bool awsIotMqttMode,
     strncpy( gObdContext.vin, OBD_DEFAULT_VIN, OBD_VIN_MAX );
     retIoctl = pdPASS;
 #else
-    retIoctl = FreeRTOS_ioctl( gObdContext.obdDevice, ioctlOBD_READ_VIN, &vinBuffer );
-    configPRINTF(("VIN %sr\n", vinBuffer.vinBuffer ));
-    strncpy( gObdContext.vin, vinBuffer.vinBuffer, 16 );
-    if( retIoctl == pdFAIL )
+    if( ODBLib_GetVIN( gObdContext.obdDevice, gObdContext.vin, OBD_VIN_MAX ) == false )
     {
         configPRINTF(("OBD device read VIN fail\r\n"));
+        retIoctl = pdFAIL;
+    }
+    else
+    {
+        configPRINTF(("OBD vin %s\r\n", gObdContext.vin));
     }
 #endif
+
+    /* Subscribe to MQTT. */
     if( retIoctl == pdPASS )
     {
         snprintf( gObdContext.topicBuf, OBD_TOPIC_BUF_SIZE, OBD_MESSAGE_TOPIC_FORMAT, gObdContext.vin );
@@ -871,8 +873,8 @@ int RunOBDDemo( bool awsIotMqttMode,
     }
 
     /* Enable GPS device. */
-    retIoctl = FreeRTOS_ioctl( gObdContext.obdDevice, ioctlOBD_GPS_ENABLE, NULL );
-    
+    GPSLib_Begin( gObdContext.obdDevice );
+
     /* the external trip loop. */
     while( true )
     {

@@ -389,22 +389,11 @@ target_link_libraries(
 afr_glob_src(config_files DIRECTORY "${board_dir}/config_files")
 
 if( NOT AFR_IS_TESTING )
-set( FREEMATIC_PLUS_SOURCES
-    "${board_dir}/application_code/FreematicsPlus/FreematicsGPS.cpp"
-    "${board_dir}/application_code/FreematicsPlus/FreematicsMEMS.cpp"
-    "${board_dir}/application_code/FreematicsPlus/FreematicsOBD.cpp"
-    "${board_dir}/application_code/FreematicsPlus/FreematicsPlus.cpp"
-)
-
-set( FREEMATIC_PLUS_INCLUDES
-    "${board_dir}/application_code/FreematicsPlus"
-    "${board_dir}/application_code/FreematicsPlus/utility"
-)
 
 set( FREERTOS_PLUS_IO_SOURCES 
     "${board_dir}/application_code/freertos_plus_io/FreeRTOS_DriverInterface.c"
-    "${board_dir}/application_code/freertos_plus_io/obd_device.cpp"
-    "${board_dir}/application_code/freertos_plus_io/buzz_device.cpp"
+    "${board_dir}/application_code/freertos_plus_io/obd_device.c"
+    "${board_dir}/application_code/freertos_plus_io/buzz_device.c"
 )
 
 set( FREERTOS_PLUS_IO_INCLUDES
@@ -418,9 +407,7 @@ if(AFR_ENABLE_DEMOS OR AFR_ENABLE_TESTS)
     add_executable(
         ${exe_target}
         "${board_dir}/application_code/main.c"
-        "${board_dir}/application_code/arduino_main.cpp"
         ${extra_exe_sources}
-        ${FREEMATIC_PLUS_SOURCES}
         ${FREERTOS_PLUS_IO_SOURCES}
     )
     target_include_directories(
@@ -428,7 +415,6 @@ if(AFR_ENABLE_DEMOS OR AFR_ENABLE_TESTS)
         PUBLIC
             $<TARGET_PROPERTY:AFR::kernel,INTERFACE_INCLUDE_DIRECTORIES>
             $<TARGET_PROPERTY:AFR::ble_hal::mcu_port,INTERFACE_INCLUDE_DIRECTORIES>
-            ${FREEMATIC_PLUS_INCLUDES}
             ${FREERTOS_PLUS_IO_INCLUDES}
     )
     target_link_libraries(
