@@ -1,5 +1,6 @@
-
+/* Kernel includes. */
 #include "FreeRTOS.h"
+#include "task.h"
 
 #include "FreeRTOS_IO.h"
 #include "buzz_device.h"

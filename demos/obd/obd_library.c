@@ -1,6 +1,10 @@
 #include <string.h>
+#include <stdbool.h>
 
-#include "FreeRTOSConfig.h"
+/* Kernel includes. */
+#include "FreeRTOS.h"
+#include "task.h"
+
 #include "FreeRTOS_IO.h"
 
 #include "obd_data.h"

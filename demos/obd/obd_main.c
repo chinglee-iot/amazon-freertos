@@ -1,10 +1,12 @@
 #include <string.h>
-#include <sys/random.h>
+#include <stdint.h>
+// #include <sys/random.h>
 
-#include "FreeRTOSConfig.h"
-#include "iot_demo_logging.h"
+#include "FreeRTOS.h"
 #include "task.h"
 #include "semphr.h"
+
+#include "iot_demo_logging.h"
 #include "platform/iot_network.h"
 
 #include "core_mqtt.h"
@@ -206,24 +208,26 @@ static const char * OBD_DATA_TELEMETRY_NAME_ARRAY[ OBD_TELEMETRY_TYPE_MAX ] =
 /* Incomming message topic. */
 static const char OBD_MESSAGE_TOPIC_FORMAT[] = "connectedcar/alert/%s/hello";
 
-extern BaseType_t publishMqtt( MQTTContext_t * pxMQTTContext,
+extern BaseType_t publishMqtt( MQTTHandle_t pxMQTTContext,
                                char * pTopic,
                                uint16_t topicLength,
                                uint8_t * pMsg,
                                uint32_t msgLength );
 
-extern BaseType_t SubscribeMqttTopic( MQTTContext_t * pxMQTTContext,
+extern BaseType_t SubscribeMqttTopic( MQTTHandle_t pxMQTTContext,
                                       char * pTopic,
                                       uint16_t topicLength );
 
-extern MQTTContext_t * setupMqttConnection( void );
+extern void closeMqttConnection( MQTTHandle_t pMQTTConnection );
+
+
+extern MQTTHandle_t setupMqttConnection( void );
 
 static void checkObdDtcData( obdContext_t * pObdContext )
 {
     uint32_t i = 0;
     uint16_t dtc[ MAX_DTC_CODES ];
     int retCodeRead = 0;
-
 
     retCodeRead = OBDLib_ReadDTC( pObdContext->obdDevice, dtc, MAX_DTC_CODES );
 
@@ -265,7 +269,8 @@ static void genTripId( obdContext_t * pObdContext )
     else
     {
         /* Random generated trip ID. */
-        getrandom( &randomBuf, sizeof( randomBuf ), 0 /* flags ignored. */ );
+        // getrandom( &randomBuf, sizeof( randomBuf ), 0 /* flags ignored. */ );
+        randomBuf = 0x11223344;
         snprintf( pObdContext->tripId, OBD_TRIP_ID_MAX, "%08u%d\0",
                   randomBuf, xTaskGetTickCount() );
     }
@@ -1078,3 +1083,10 @@ void demoNetworkFailureHook( void )
         buzz_beep( gObdContext.buzzDevice, BUZZ_LONG_BEEP_DURATION_MS, 1 );
     }
 }
+
+#ifdef BUILD_WASM
+int main( void )
+{
+    return RunOBDDemo( true, NULL, NULL, NULL, NULL );
+}
+#endif
